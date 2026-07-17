@@ -440,6 +440,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(r"上千", lambda _match: 1_000, "quantity")
+    replace(r"数千", lambda _match: 1_000, "quantity")
     replace(r"\b(\d+)(?:st|nd|rd|th)\b", lambda match: int(match.group(1)), "ordinal")
     replace(
         r"第\s*(\d+)(?!\s*(?:章|次世界大战))",
@@ -543,6 +544,17 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
+        r"\b(thousands?|hundreds?)\s+of\s+(?:years?|objects?|images|documents|languages)\b",
+        lambda match: 1_000 if match.group(1).casefold().startswith("thousand") else 100,
+        "quantity",
+    )
+    replace(
+        r"\ba\s+couple\s+of\s+decades\b",
+        lambda _match: 20,
+        "quantity",
+    )
+    replace(r"\bfirst\s+decade\b", lambda _match: 10, "quantity")
+    replace(
         r"\ba\s+(hundred|thousand|million|billion|trillion)\s+(?:years?|months?|weeks?|days?)\b",
         lambda match: magnitudes[match.group(1).casefold()],
         "quantity",
@@ -624,6 +636,12 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )
+    replace(
+        r"(?<!十)([一二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月)",
+        lambda match: chinese_number[match.group(1)],
+        "quantity",
+    )
+    replace(r"头十年", lambda _match: 10, "quantity")
     replace(
         r"(?<![第数几一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿字分足全余几])",
         lambda match: (chinese_number[match.group(1)] if match.group(1) else 1) * 10

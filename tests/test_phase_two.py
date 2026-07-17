@@ -332,6 +332,10 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("twenty years") == _numeric_anchors("二十年")
     assert _numeric_anchors("a thousand-year struggle") == _numeric_anchors("千年斗争")
     assert _numeric_anchors("a hundred years") == _numeric_anchors("一百年")
+    assert _numeric_anchors("one year later") == _numeric_anchors("一年后")
+    assert _numeric_anchors("nine hours") == _numeric_anchors("九个小时")
+    assert _numeric_anchors("the first decade") == _numeric_anchors("头十年")
+    assert _numeric_anchors("thousands of documents") == _numeric_anchors("数千份文件")
     assert _numeric_anchors("several decades") == _numeric_anchors("几十年") == []
 
 
