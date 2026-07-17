@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,7 +25,7 @@ from contextweaver.pipeline import (
     validate_project,
 )
 from contextweaver.reference import import_reference, simplify_reference, simplify_reference_outputs
-from contextweaver.storage import read_jsonl
+from contextweaver.storage import read_jsonl, write_jsonl
 
 
 def _project(tmp_path: Path, source: Path) -> Path:
@@ -277,6 +278,29 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("$20-$30 billion") == _numeric_anchors("200亿至300亿美元")
     assert _numeric_anchors("$4 trillion") == _numeric_anchors("4万亿美元")
     assert _numeric_anchors("during COVID-19") == _numeric_anchors("新冠疫情期间") == []
+    assert _numeric_anchors("two and two make four") == _numeric_anchors("二加二等于四")
+
+
+def test_relaxed_numeric_mode_allows_localized_zero_padded_title(tmp_path: Path) -> None:
+    project = tmp_path / "book"
+    init_project(project, "Numeric title", "en", "zh-CN")
+    source = tmp_path / "source.md"
+    source.write_text("# Chapter\n\nCharter 08 was published in 2008.\n", encoding="utf-8")
+    import_document(project, source)
+    segment_document(project)
+    translate_project(project, MockTranslationAdapter())
+    records = read_jsonl(project / "state" / "translations.jsonl", TranslationRecord)
+    paragraph = next(record for record in records if "Charter 08" in record.translated_text)
+    records[records.index(paragraph)] = replace(
+        paragraph, translated_text="《零八宪章》于2008年公布。"
+    )
+    write_jsonl(project / "state" / "translations.jsonl", records)
+
+    relaxed = validate_project(project, numeric_mode="relaxed")
+    strict = validate_project(project, numeric_mode="strict")
+
+    assert "numeric_anchor_mismatch" not in {item.kind for item in relaxed}
+    assert "numeric_anchor_mismatch" in {item.kind for item in strict}
 
 
 def test_uppercase_slogans_are_not_acronyms() -> None:

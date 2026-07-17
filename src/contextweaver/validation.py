@@ -87,6 +87,14 @@ def quality_issues(
                             target_set.add(source_anchor)
                 missing = Counter(source_set - target_set)
                 extra = Counter(target_set - source_set)
+                # Zero-padded two-digit labels such as ``Charter 08`` are
+                # commonly localized as words or title elements rather than
+                # repeated as standalone numeric data.  In working mode they
+                # should not block a source-faithful translation; strict
+                # publication validation still reports them.
+                for anchor in list(missing):
+                    if re.fullmatch(r"0\d+", anchor):
+                        del missing[anchor]
                 if not missing:
                     continue
             severity = "error" if missing or numeric_mode == "strict" else "warning"
@@ -447,6 +455,11 @@ def _numeric_anchors(text: str) -> list[str]:
         "九": 9,
         "两": 2,
     }
+    replace(
+        r"[一二三四五六七八九两]\s*加\s*[一二三四五六七八九两]\s*等于\s*([一二三四五六七八九两])",
+        lambda match: chinese_number[match.group(1)],
+        "quantity",
+    )
     replace(
         r"([一二三四五六七八九两])万([一二三四五六七八九两])千",
         lambda match: chinese_number[match.group(1)] * 10_000
