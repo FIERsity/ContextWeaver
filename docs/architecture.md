@@ -23,6 +23,8 @@ Summarizers may emit conservative ambiguity records for unresolved references, t
 
 `auto` is the non-interactive main path. It segments when needed, creates or resumes analysis and summaries, extracts knowledge, translates pending Segments, and runs Segment, Section, and book review as a convergence loop. A round with revisions invalidates affected higher-level fingerprints, so another round is required; the run succeeds only after a full round makes no revision, or fails at the configured maximum. It then validates, exports only when blocking errors are absent, and writes the v1 readiness audit. Low-confidence strategy decisions do not require approval. Human review remains an optional correction and revision interface.
 
+`--max-units` gives long runs an explicit cost and time boundary. Each successfully returned TranslationUnit is appended before the counter advances. When the limit is reached with untranslated Segments remaining, `auto` reports the durable coverage and exits before any incomplete Section/book review or export. A later invocation resumes from active TranslationRecords.
+
 ## Agent Critic and Reviser
 
 `review` evaluates the newest TranslationRecord for each selected Segment against its source, adjacent context, current translation strategy, terminology, entities, and optional human-reference evidence. Review categories cover semantic fidelity, concept role, terminology, natural Chinese, rhetoric, and format. Provider-neutral ReviewAdapters return either `pass` or a complete replacement translation.

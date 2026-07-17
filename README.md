@@ -53,9 +53,13 @@ contextweaver auto my-book --adapter mock
 # With the optional online adapter:
 contextweaver auto my-book --adapter openai --model gpt-5.6-sol \
   --requests-per-minute 30 --format all --content all
+# Cost-controlled resumable batches for a long pilot:
+contextweaver auto my-book --adapter openai --max-units 10
 ```
 
 `auto` writes `state/translation_brief.json` and a readable mirror at `notes/translation_brief.md`. The strategy describes genre, disciplinary register, source and target style, audience, translation principles, and evidence-backed concept rules. It is injected into every ContextPacket. After translation, the default Critic/Reviser pass checks semantic fidelity, concept sense, terminology, rhetoric, formatting, and natural Chinese. Segment, Section, and book review repeat until a full round produces no new revision, with `--max-review-rounds` preventing unbounded churn. Human editing is optional; normal reruns preserve the existing brief, while `--refresh-analysis` explicitly regenerates it. Use `--skip-review` only when intentionally trading quality for cost or a workflow test.
+
+For a costly long-book run, `--max-units N` processes at most N currently pending TranslationUnits and exits successfully with durable records. Repeating the same command resumes from the next pending unit. A bounded incomplete run never starts Section/book review, validation, or export; omitting the limit eventually follows the normal full completion path.
 
 The review stage is independently resumable and scope-selectable:
 

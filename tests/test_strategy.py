@@ -41,7 +41,9 @@ def test_analysis_creates_editable_strategy_and_injects_context(tmp_path: Path) 
 def test_analysis_scans_rare_high_impact_concepts_outside_samples(tmp_path: Path) -> None:
     root = _project(tmp_path)
     source = root / "source" / "document.md"
-    source.write_text(source.read_text() + "\n# Later\n\nMost people are disempowered.\n", encoding="utf-8")
+    source.write_text(
+        source.read_text() + "\n# Later\n\nMost people are disempowered.\n", encoding="utf-8"
+    )
     segment_document(root, unit_size=1)
     brief = analyze_project(root, HeuristicBookAnalysisAdapter())
     rule = next(item for item in brief["concept_rules"] if item["source_term"] == "disempowered")
@@ -54,17 +56,29 @@ def test_analysis_is_resumable_and_does_not_overwrite_edits(tmp_path: Path) -> N
     path = root / "state" / "translation_brief.json"
     edited = {**first, "target_style": "Custom reviewed style"}
     path.write_text(json.dumps(edited), encoding="utf-8")
-    assert analyze_project(root, HeuristicBookAnalysisAdapter())["target_style"] == "Custom reviewed style"
+    assert (
+        analyze_project(root, HeuristicBookAnalysisAdapter())["target_style"]
+        == "Custom reviewed style"
+    )
 
 
 def test_openai_analysis_adapter_uses_structured_output() -> None:
     result = {
-        "genre": "social science", "domains": ["political economy"],
-        "source_style": "analytical", "target_style": "natural zh-CN", "audience": "general",
-        "principles": ["faithful"], "concept_rules": [], "confidence": 0.9,
+        "genre": "social science",
+        "domains": ["political economy"],
+        "source_style": "analytical",
+        "target_style": "natural zh-CN",
+        "audience": "general",
+        "principles": ["faithful"],
+        "concept_rules": [],
+        "confidence": 0.9,
     }
-    responses = SimpleNamespace(create=lambda **kwargs: SimpleNamespace(output_text=json.dumps(result)))
-    adapter = OpenAIBookAnalysisAdapter(client=SimpleNamespace(responses=responses), model="test-model")
+    responses = SimpleNamespace(
+        create=lambda **kwargs: SimpleNamespace(output_text=json.dumps(result))
+    )
+    adapter = OpenAIBookAnalysisAdapter(
+        client=SimpleNamespace(responses=responses), model="test-model"
+    )
     assert adapter.analyze({"samples": []}) == result
 
 
@@ -78,5 +92,20 @@ def test_auto_cli_runs_agent_first_path_without_human_gate(tmp_path: Path) -> No
     assert (root / "state" / "scope_reviews.jsonl").exists()
     assert (root / "output" / "translated.md").exists()
     assert (root / "output" / "translated.epub").exists()
+    report = json.loads((root / "state" / "v1_audit.json").read_text(encoding="utf-8"))
+    assert report["ready"] is True
+
+
+def test_auto_cli_stops_cleanly_after_bounded_translation_batch(tmp_path: Path) -> None:
+    root = _project(tmp_path)
+    assert run(["auto", str(root), "--max-units", "1"]) == 0
+    status = json.loads((root / "state" / "manifest.json").read_text(encoding="utf-8"))
+    assert status["translation_count"] == 1
+    assert status["steps"]["translate"] == "pending"
+    assert not (root / "state" / "reviews.jsonl").exists()
+    assert not (root / "state" / "scope_reviews.jsonl").exists()
+    assert not (root / "output" / "translated.md").exists()
+
+    assert run(["auto", str(root)]) == 0
     report = json.loads((root / "state" / "v1_audit.json").read_text(encoding="utf-8"))
     assert report["ready"] is True

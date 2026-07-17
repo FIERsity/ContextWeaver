@@ -23,7 +23,10 @@ from contextweaver.pipeline import (
 @pytest.fixture
 def source(tmp_path: Path) -> Path:
     path = tmp_path / "book.md"
-    path.write_text("# One\n\nFirst paragraph.\n\nSecond paragraph.\n\n# Two\n\nLast paragraph.\n", encoding="utf-8")
+    path.write_text(
+        "# One\n\nFirst paragraph.\n\nSecond paragraph.\n\n# Two\n\nLast paragraph.\n",
+        encoding="utf-8",
+    )
     return path
 
 
@@ -58,12 +61,28 @@ def test_resume_validate_and_export(project: Path) -> None:
     assert validate_project(project) == []
     translated, bilingual = export_project(project)
     assert "[MOCK] First paragraph." in translated.read_text(encoding="utf-8")
-    assert "translator: \"ContextWeaver Mock Adapter" in translated.read_text(encoding="utf-8")
+    assert 'translator: "ContextWeaver Mock Adapter' in translated.read_text(encoding="utf-8")
     assert "> First paragraph." in bilingual.read_text(encoding="utf-8")
     assert project_status(project).translation_count == 3
     metadata = json.loads((project / "state" / "export_metadata.json").read_text())
     assert metadata["translator"].startswith("ContextWeaver Mock Adapter")
     assert "authoritative" in metadata["fidelity_note"]
+
+
+def test_bounded_translation_units_resume_without_duplicates(project: Path) -> None:
+    segment_document(project, unit_size=1)
+    assert translate_project(project, MockTranslationAdapter(), max_units=1) == (1, 0)
+    assert project_status(project).translation_count == 1
+    assert translate_project(project, MockTranslationAdapter(), max_units=1) == (1, 1)
+    assert project_status(project).translation_count == 2
+    assert translate_project(project, MockTranslationAdapter()) == (1, 2)
+    assert project_status(project).translation_count == 3
+
+
+def test_bounded_translation_rejects_invalid_limit(project: Path) -> None:
+    segment_document(project)
+    with pytest.raises(ValueError, match="max_units"):
+        translate_project(project, MockTranslationAdapter(), max_units=0)
 
 
 def test_optional_epub_exports_are_readable(project: Path) -> None:
@@ -106,14 +125,19 @@ def test_agent_draft_import_and_scoped_export(project: Path, tmp_path: Path) -> 
         "\n".join(
             json.dumps({"segment_id": item.id, "translated_text": f"译文 {item.text}"})
             for item in segments[:2]
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
     assert import_translation_draft(project, draft, "codex-agent", "GPT-5.6", "pilot") == 2
     issues = validate_project(project, {sections[0].id})
     assert issues == []
     paths = export_selected(
-        project, {"epub"}, {"translated"}, "Codex Agent using GPT-5.6",
-        "Human translator (reference only)", {sections[0].id},
+        project,
+        {"epub"},
+        {"translated"},
+        "Codex Agent using GPT-5.6",
+        "Human translator (reference only)",
+        {sections[0].id},
     )
     assert paths[0].parent.name == sections[0].id
