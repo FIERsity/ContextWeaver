@@ -35,7 +35,7 @@ Chapter and book coherence use `scope_reviews.jsonl`. Each ScopeReview fingerpri
 
 ## Evidence-backed completion
 
-`audit` converts the v1 acceptance target into durable evidence at `state/v1_audit.json` with a readable mirror at `notes/v1_audit.md`. It checks retained inputs, import reporting, stable structural coverage, strategy and summaries, ambiguity evidence, complete non-mock active translations, revision chains, current Segment/Section/book review coverage, deterministic validation, translated and bilingual Markdown/EPUB artifacts, EPUB readback, and provenance. Partial projects fail with counts rather than being mistaken for complete. `--allow-mock` is restricted to workflow verification and is not release evidence.
+`audit` converts the v1 acceptance target into durable evidence at `state/v1_audit.json` with a readable mirror at `notes/v1_audit.md`. It checks retained inputs, import reporting, stable structural coverage, strategy and summaries, ambiguity plus terminology/entity evidence, complete non-mock active translations, revision chains, current Segment/Section/book review coverage, deterministic validation, translated and bilingual Markdown/EPUB artifacts, EPUB readback, and provenance. Partial projects fail with counts rather than being mistaken for complete. `--allow-mock` is restricted to workflow verification and is not release evidence.
 
 ## Stable identity
 

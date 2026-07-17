@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 
 from contextweaver.adapters import HeuristicReviewAdapter, MockTranslationAdapter
 from contextweaver.audit import audit_project
 from contextweaver.coherence import review_book, review_sections
 from contextweaver.coherence_adapters import HeuristicCoherenceReviewAdapter
+from contextweaver.models import Entity
 from contextweaver.pipeline import (
     export_selected,
     import_document,
@@ -15,6 +17,7 @@ from contextweaver.review import review_project
 from contextweaver.strategy import HeuristicBookAnalysisAdapter, analyze_project
 from contextweaver.summaries import summarize_project
 from contextweaver.summary_adapters import HeuristicSummaryAdapter
+from contextweaver.storage import write_jsonl
 
 
 def _complete_project(tmp_path: Path) -> tuple[Path, str]:
@@ -55,3 +58,33 @@ def test_audit_detects_stale_reviews_after_retranslation(tmp_path: Path) -> None
     report = audit_project(root, allow_mock=True)
     failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
     assert {"segment_review_coverage", "section_review_coverage", "book_review"} <= failed
+
+
+def test_audit_rejects_knowledge_without_valid_source_evidence(tmp_path: Path) -> None:
+    root, _ = _complete_project(tmp_path)
+    write_jsonl(
+        root / "state" / "entities.jsonl",
+        [Entity("ent_bad", "Unknown", "person", evidence_segment_ids=["seg_missing"])],
+    )
+    report = audit_project(root, allow_mock=True)
+    failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
+    assert "knowledge_evidence" in failed
+
+
+def test_audit_rejects_concept_rule_without_valid_source_evidence(tmp_path: Path) -> None:
+    root, _ = _complete_project(tmp_path)
+    brief_path = root / "state" / "translation_brief.json"
+    brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    brief["concept_rules"] = [
+        {
+            "source_term": "power",
+            "preferred_rendering": "权力",
+            "guidance": "Use the institutional sense.",
+            "evidence_segment_ids": ["seg_missing"],
+            "confidence": 0.9,
+        }
+    ]
+    brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+    report = audit_project(root, allow_mock=True)
+    failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
+    assert "translation_strategy" in failed

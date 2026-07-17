@@ -94,7 +94,7 @@ The final gate is explicit and independently runnable:
 contextweaver audit my-book
 ```
 
-It writes `state/v1_audit.json` and `notes/v1_audit.md`, checking source retention, structural identity, strategy and summary coverage, revision integrity, current three-level review fingerprints, deterministic validation, all four final artifacts, EPUB readback, and provenance. `--allow-mock` exists only for workflow tests; it must not be used as release evidence.
+It writes `state/v1_audit.json` and `notes/v1_audit.md`, checking source retention, structural identity, strategy, summary and knowledge-evidence coverage, revision integrity, current three-level review fingerprints, deterministic validation, all four final artifacts, EPUB readback, and provenance. `--allow-mock` exists only for workflow tests; it must not be used as release evidence.
 
 ## Use with Codex
 
