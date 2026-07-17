@@ -185,8 +185,8 @@ def _restore_latin_apostrophes(value: str) -> str:
     Chinese closing quote (``“中文”``) remains a closing quote.
     """
     latin = r"A-Za-zÀ-ÖØ-öø-ÿ"
-    value = re.sub(rf"(?<=[{latin}])”(?=[{latin}])", "'", value)
-    return re.sub(rf"(?<=[{latin}])”(?=\s+[{latin}])", "'", value)
+    value = re.sub(rf"(?<=[{latin}])[”’](?=[{latin}])", "'", value)
+    return re.sub(rf"(?<=[{latin}])[”’](?=\s+[{latin}])", "'", value)
 
 
 def _normalize_quote_marks(value: str) -> str:
