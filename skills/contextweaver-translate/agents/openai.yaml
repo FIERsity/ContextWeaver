@@ -1,0 +1,5 @@
+interface:
+  display_name: "ContextWeaver Translation"
+  short_description: "Run reviewable, resumable long-form translations"
+  default_prompt: "Use $contextweaver-translate to translate this long-form document with reviewable context and resumable state."
+

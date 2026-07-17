@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contextweaver"
+version = "0.2.0"
+description = "A file-first, resumable framework for context-aware long-form translation agents."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "ContextWeaver contributors" }]
+keywords = ["translation", "agents", "long-form", "nlp"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+  "beautifulsoup4>=4.12",
+  "ebooklib>=0.19",
+  "markdown-it-py>=3.0",
+  "mdit-py-plugins>=0.4",
+  "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+openai = ["openai>=2.0"]
+
+[project.scripts]
+contextweaver = "contextweaver.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contextweaver"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
