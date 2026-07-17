@@ -99,6 +99,15 @@ def format_signature(raw: str) -> list[str]:
     return sorted(signature)
 
 
+def plain_text(raw: str) -> str:
+    """Return visible Markdown text for content-level checks.
+
+    List markers and inline delimiters are formatting syntax, not source
+    quantities. Callers that compare content should therefore use this form.
+    """
+    return _plain(raw, "heading" if re.match(r"^#{1,6}\\s+", raw) else "paragraph")
+
+
 def _kind(token_type: str, raw: str) -> str:
     return {
         "heading_open": "heading",

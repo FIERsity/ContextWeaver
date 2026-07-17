@@ -13,6 +13,7 @@ from contextweaver.adapters import (
     TranslationAdapter,
 )
 from contextweaver.knowledge import propose_knowledge
+from contextweaver.markdown import plain_text
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
@@ -46,6 +47,10 @@ def test_structured_markdown_preserves_blocks_and_inline_markup(tmp_path: Path) 
     assert [item.kind for item in segments] == ["list", "blockquote", "footnote"]
     assert "**bold**" in segments[0].raw
     assert "footnote_ref" in segments[1].format_signature
+
+
+def test_plain_text_excludes_ordered_list_markers_from_content_checks() -> None:
+    assert plain_text("12. **A cited work**") == "A cited work"
 
 
 def test_docx_import(tmp_path: Path) -> None:
@@ -288,6 +293,10 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("between one and five shares") == _numeric_anchors("一至五股")
     assert _numeric_anchors("from twenty-one to thirty-seven years") == _numeric_anchors("二十一至三十七岁")
     assert _numeric_anchors("one billion francs") == _numeric_anchors("十亿法郎")
+    assert _numeric_anchors("a thousand years") == _numeric_anchors("千余年")
+    assert _numeric_anchors("twelve thousand years") == _numeric_anchors("一万二千年")
+    assert _numeric_anchors("两千年乃至七千年") == ["quantity:2000", "quantity:7000"]
+    assert _numeric_anchors("at a crossroads") == _numeric_anchors("站在十字路口") == []
     assert _balanced_numeric_anchors(
         _numeric_anchors("multiply two seven-digit numbers")
     ) == _balanced_numeric_anchors(_numeric_anchors("将两个七位数相乘"))

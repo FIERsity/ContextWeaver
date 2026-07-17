@@ -7,7 +7,7 @@ from decimal import Decimal
 import re
 from collections.abc import Callable
 
-from .markdown import format_signature
+from .markdown import format_signature, plain_text
 from .models import GlossaryEntry, ReviewIssue, Segment, TranslationRecord
 from .pipeline import active_translations, stable_id
 
@@ -43,7 +43,10 @@ def quality_issues(
                     "error",
                 )
             )
-        if record.adapter == "structural-passthrough":
+        # These adapters intentionally retain source-visible text: image-only
+        # structure and bibliographic citations are not semantically translated
+        # prose. Their Markdown structure is still checked above.
+        if record.adapter in {"structural-passthrough", "bibliography-passthrough"}:
             continue
         if len(output.strip()) < max(1, len(segment.text.strip()) // 20):
             issues.append(
@@ -55,54 +58,51 @@ def quality_issues(
                 )
             )
         source_numbers = _numeric_anchors(segment.text)
-        target_numbers = _numeric_anchors(output)
+        target_numbers = _numeric_anchors(plain_text(output))
         # Both modes compare semantic quantities rather than surface notation.
         # Strictness controls mismatch severity, not whether 2,000 and a
         # source-backed written/scaled rendering describe the same quantity.
         compared_source = _balanced_numeric_anchors(source_numbers)
         compared_target = _balanced_numeric_anchors(target_numbers)
         if compared_source != compared_target:
-            missing = Counter(compared_source) - Counter(compared_target)
-            extra = Counter(compared_target) - Counter(compared_source)
-            # Production translation is source-preserving by default: a source
-            # quantity that disappears or changes still blocks the run, while
-            # target-only anchors are deferred to the strict publication audit.
-            # This avoids treating source-backed naturalizations such as
-            # ``May`` -> ``5月`` as invented data when a parser cannot prove the
-            # equivalence yet.
+            # Repetition is often deliberately compressed in Chinese prose.
+            # Validate that every distinct factual anchor survives, instead of
+            # requiring it to appear the same number of times.
+            source_set = set(compared_source)
+            target_set = set(compared_target)
+            # A Chinese ``60年代`` inherits its century from the source context.
+            # Resolve it only when its matching source decade is unambiguous.
+            for target_anchor in list(target_set):
+                if re.fullmatch(r"\d{2}", target_anchor) and target_anchor not in source_set:
+                    matches = [
+                        item
+                        for item in source_set
+                        if item.startswith("decade:")
+                        and str(int(item.removeprefix("decade:")) % 100) == target_anchor
+                    ]
+                    if len(matches) == 1:
+                        target_set.add(matches[0])
+                        target_set.remove(target_anchor)
+            # A stated decade carries its century evidence even when Chinese
+            # does not restate the century as a separate phrase.
+            for target_anchor in list(target_set):
+                if target_anchor.startswith("decade:"):
+                    decade = int(target_anchor.removeprefix("decade:"))
+                    target_set.add(f"century:{decade // 100 + 1}")
+            missing = Counter(source_set - target_set)
+            extra = Counter(target_set - source_set)
             if numeric_mode == "relaxed":
-                # Repeating a shared year or quantity once instead of twice is
-                # normal Chinese compression, so working validation compares
-                # semantic presence rather than multiplicity.
-                source_set = set(compared_source)
-                target_set = set(compared_target)
-                # Chinese commonly establishes the century once and then says
-                # simply ``60年代``. Accept the abbreviated decade only when
-                # the full source decade supplies its century evidence.
-                for source_anchor in source_numbers:
-                    if source_anchor.startswith("decade:"):
-                        decade = int(source_anchor.removeprefix("decade:"))
-                        suffix = str(decade % 100)
-                        if source_anchor not in target_set and suffix in target_set:
-                            target_set.add(source_anchor)
-                # A stated decade (for example ``2010年代``) carries evidence
-                # for its century even when Chinese prose does not repeat it.
-                for target_anchor in target_numbers:
-                    if target_anchor.startswith("decade:"):
-                        decade = int(target_anchor.removeprefix("decade:"))
-                        target_set.add(f"century:{decade // 100 + 1}")
-                missing = Counter(source_set - target_set)
-                extra = Counter(target_set - source_set)
-                # Zero-padded two-digit labels such as ``Charter 08`` are
-                # commonly localized as words or title elements rather than
-                # repeated as standalone numeric data.  In working mode they
-                # should not block a source-faithful translation; strict
-                # publication validation still reports them.
                 for anchor in list(missing):
                     if re.fullmatch(r"0\d+", anchor):
                         del missing[anchor]
-                if not missing:
-                    continue
+            if not missing and not extra:
+                continue
+            if numeric_mode == "relaxed" and not missing:
+                continue
+            # A target-only number can be a legitimate explicit rendering of
+            # source context (for example a month or a localized heading).
+            # Working validation retains it as a warning; the release audit
+            # remains conservative and requires it to be resolved.
             severity = "error" if missing or numeric_mode == "strict" else "warning"
             issues.append(
                 _issue(
@@ -431,6 +431,7 @@ def _numeric_anchors(text: str) -> list[str]:
     replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
     replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
     replace(r"\b(?:a|one)\s+millennium\b", lambda _match: 1_000, "quantity")
+    replace(r"(?<![一二三四五六七八九两])千余?年", lambda _match: 1_000, "quantity")
     replace(
         r"\ba\s+thousand\b",
         lambda _match: 1_000,
@@ -599,7 +600,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"(?<![第数一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿])",
+        r"(?<![第数一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿字分足全余几])",
         lambda match: (chinese_number[match.group(1)] if match.group(1) else 1) * 10
         + (chinese_number[match.group(2)] if match.group(2) else 0),
         "quantity",
