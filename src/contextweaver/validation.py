@@ -203,7 +203,9 @@ _ZH_MONTHS = {
 
 def _numeric_anchors(text: str) -> list[str]:
     """Canonicalize explicit numbers plus semantically numeric calendar months."""
-    working = text
+    # Lexicalized names such as COVID-19 are terminology, not quantities. Their
+    # localized forms (for example ``新冠``) are covered by terminology review.
+    working = re.sub(r"\bCOVID-?19\b", " ", text, flags=re.IGNORECASE)
     anchors: list[str] = []
 
     def replace(pattern: str, convert: Callable[[re.Match[str]], object], value: str) -> None:
@@ -354,7 +356,13 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: int(match.group(1)),
         "ordinal",
     )
-    magnitudes = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+    magnitudes = {
+        "hundred": 100,
+        "thousand": 1_000,
+        "million": 1_000_000,
+        "billion": 1_000_000_000,
+        "trillion": 1_000_000_000_000,
+    }
     word_numbers = {
         "one": 1,
         "two": 2,
@@ -385,7 +393,15 @@ def _numeric_anchors(text: str) -> list[str]:
         "ninety": 90,
     }
     number_words = "|".join(word_numbers)
-    magnitude_words = "hundred|thousand|million|billion"
+    magnitude_words = "hundred|thousand|million|billion|trillion"
+    replace_many(
+        rf"\b({number_words})\s+({number_words})[\s-]+digit\b",
+        lambda match: [
+            word_numbers[match.group(1).casefold()],
+            word_numbers[match.group(2).casefold()],
+        ],
+        "quantity",
+    )
     replace(
         rf"\bnineteen[\s-]+((?:{number_words})(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?)\b",
         lambda match: 1900 + _english_number_value(match.group(1), word_numbers, magnitudes),
@@ -413,7 +429,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        rf"\b({number_words})\s+(hundred|thousand|million|billion)\b",
+        rf"\b({number_words})\s+(hundred|thousand|million|billion|trillion)\b",
         lambda match: word_numbers[match.group(1).casefold()]
         * magnitudes[match.group(2).casefold()],
         "quantity",
@@ -464,6 +480,16 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: chinese_number[match.group(1)] * 10_000,
         "quantity",
     )
+    replace_many(
+        r"([一二三四五六七八九两])个([一二三四五六七八九])位数",
+        lambda match: [chinese_number[match.group(1)], chinese_number[match.group(2)]],
+        "quantity",
+    )
+    replace(
+        r"([一二三四五六七八九两])年半",
+        lambda match: chinese_number[match.group(1)],
+        "quantity",
+    )
     replace(
         r"(?<![第数一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿])",
         lambda match: (chinese_number[match.group(1)] if match.group(1) else 1) * 10
@@ -471,7 +497,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace_many(
-        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*[‒–—-]\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion)\b",
+        r"(?<![A-Za-z0-9_.])(?:[$€£¥]\s*)?(\d[\d,]*(?:\.\d+)?)\s*[‒–—-]\s*(?:[$€£¥]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion|trillion)\b",
         lambda match: [
             _scaled_number(match.group(1), magnitudes[match.group(3).casefold()]),
             _scaled_number(match.group(2), magnitudes[match.group(3).casefold()]),
@@ -479,14 +505,17 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion)\b",
+        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion|trillion)\b",
         lambda match: _scaled_number(match.group(1), magnitudes[match.group(2).casefold()]),
         "quantity",
     )
     replace(
-        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*多?\s*(万|亿)",
+        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*多?\s*(万亿|万|亿)",
         lambda match: _scaled_number(
-            match.group(1), 10_000 if match.group(2) == "万" else 100_000_000
+            match.group(1),
+            {"万": 10_000, "亿": 100_000_000, "万亿": 1_000_000_000_000}[
+                match.group(2)
+            ],
         ),
         "quantity",
     )

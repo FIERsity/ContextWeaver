@@ -268,6 +268,15 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("twenty-five people") == _numeric_anchors("二十五人")
     assert _numeric_anchors("thirty-five years") == _numeric_anchors("三十五年")
     assert _numeric_anchors("during the 19th century") == _numeric_anchors("19世纪")
+    assert _balanced_numeric_anchors(
+        _numeric_anchors("multiply two seven-digit numbers")
+    ) == _balanced_numeric_anchors(_numeric_anchors("将两个七位数相乘"))
+    assert _balanced_numeric_anchors(
+        _numeric_anchors("for six and a half years")
+    ) == _balanced_numeric_anchors(_numeric_anchors("六年半"))
+    assert _numeric_anchors("$20-$30 billion") == _numeric_anchors("200亿至300亿美元")
+    assert _numeric_anchors("$4 trillion") == _numeric_anchors("4万亿美元")
+    assert _numeric_anchors("during COVID-19") == _numeric_anchors("新冠疫情期间") == []
 
 
 def test_uppercase_slogans_are_not_acronyms() -> None:
