@@ -74,6 +74,8 @@ Deterministic fidelity checks currently compare numeric anchors (including curre
 
 Numeric comparison canonicalizes information rather than requiring identical character forms. Explicit English calendar months adjacent to a year and Chinese numeric or written months map to the same `month:N` anchor, so `May 2023`, `2023年5月`, and `2023年五月` agree. A modal `may` outside date syntax is not converted, and all other year/day/value anchors remain independently required.
 
+A source acronym may be replaced by an approved preferred translation or allowed variant in the evidence-backed glossary—for example, `US` may validly become `美国`. Word-like Latin glossary terms are matched at token boundaries, preventing short entries from being triggered by unrelated substrings such as `US` inside `purposes`.
+
 ## Online adapter boundary
 
 The optional OpenAI adapter uses the Responses API with a strict JSON Schema requiring one translation per source item. It owns credentials, request pacing, and bounded retries for transient failures. The pipeline commits every completed unit before the next call, so a later failure resumes without repeating completed work.

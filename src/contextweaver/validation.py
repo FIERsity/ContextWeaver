@@ -59,7 +59,16 @@ def quality_issues(
                 )
             )
         for acronym in _acronyms(segment.text):
-            if acronym not in output:
+            approved_renderings = [
+                rendering
+                for entry in glossary
+                if entry.status == "approved" and entry.term.casefold() == acronym.casefold()
+                for rendering in [entry.preferred_translation, *entry.allowed_variants]
+                if rendering
+            ]
+            if acronym not in output and not any(
+                rendering.casefold() in output.casefold() for rendering in approved_renderings
+            ):
                 issues.append(
                     _issue(
                         "acronym_missing",
@@ -72,7 +81,7 @@ def quality_issues(
         for entry in glossary:
             if entry.status != "approved" or not entry.preferred_translation:
                 continue
-            if entry.term.casefold() in segment.text.casefold():
+            if _contains_term(segment.text, entry.term):
                 variants = [entry.preferred_translation, *entry.allowed_variants]
                 if not any(item.casefold() in output.casefold() for item in variants):
                     issues.append(
@@ -200,3 +209,16 @@ def _acronyms(text: str) -> list[str]:
     }
     candidates = set(re.findall(r"(?<![A-Za-z])[A-Z]{2,8}(?![A-Za-z])", text))
     return sorted(candidates - common_words)
+
+
+def _contains_term(text: str, term: str) -> bool:
+    """Match word-like Latin terms without treating them as substrings of words."""
+    if re.fullmatch(r"[A-Za-z0-9_]+", term):
+        return bool(
+            re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
+    return term.casefold() in text.casefold()

@@ -228,6 +228,38 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
     assert "numeric_anchor_mismatch" not in {item.kind for item in issues}
 
 
+def test_approved_acronym_translation_preserves_semantic_anchor(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text(
+        "# One\n\nA US industrial firm.\n\nIts purposes remain unchanged.\n",
+        encoding="utf-8",
+    )
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    glossary = root / "state" / "glossary.csv"
+    glossary.write_text(
+        "term,preferred_translation,allowed_variants,note,source_segment_id,confidence,evidence_segment_ids,status\n"
+        f"US,美国,,Geopolitical abbreviation,{segments[0].id},0.99,{segments[0].id},approved\n",
+        encoding="utf-8",
+    )
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        "\n".join(
+            json.dumps(item, ensure_ascii=False)
+            for item in (
+                {"segment_id": segments[0].id, "translated_text": "一家美国工业企业。"},
+                {"segment_id": segments[1].id, "translated_text": "其宗旨并未改变。"},
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "GPT-5", "acronym-localization")
+    issues = validate_project(root)
+    assert "acronym_missing" not in {item.kind for item in issues}
+    assert "terminology_mismatch" not in {item.kind for item in issues}
+
+
 def test_link_destination_underscores_are_not_emphasis() -> None:
     from contextweaver.markdown import format_signature
 
