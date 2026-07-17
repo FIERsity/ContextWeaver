@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from decimal import Decimal
 import re
+from collections.abc import Callable
 
 from .markdown import format_signature
 from .models import GlossaryEntry, ReviewIssue, Segment, TranslationRecord
@@ -152,9 +154,72 @@ _ZH_MONTHS = {
 
 def _numeric_anchors(text: str) -> list[str]:
     """Canonicalize explicit numbers plus semantically numeric calendar months."""
-    anchors = _numbers(text)
+    working = text
+    anchors: list[str] = []
+
+    def replace(pattern: str, convert: Callable[[re.Match[str]], object], value: str) -> None:
+        nonlocal working
+
+        def substitution(match: re.Match[str]) -> str:
+            anchors.append(f"{value}:{convert(match)}")
+            return " "
+
+        working = re.sub(pattern, substitution, working, flags=re.IGNORECASE)
+
+    replace(r"\b(\d{4})s\b", lambda match: int(match.group(1)), "decade")
+    shared_decades = re.compile(
+        r"(?<!\d)(\d{1,2})\s*世纪\s*(\d{1,2})\s*年代\s*(?:和|与|至|到|、)\s*(\d{1,2})\s*年代"
+    )
+    match = shared_decades.search(working)
+    while match:
+        century = int(match.group(1))
+        anchors.extend(
+            [
+                f"decade:{(century - 1) * 100 + int(match.group(2))}",
+                f"decade:{(century - 1) * 100 + int(match.group(3))}",
+            ]
+        )
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = shared_decades.search(working)
+    replace(
+        r"(?<!\d)(\d{1,2})\s*世纪\s*(\d{1,2})\s*年代",
+        lambda match: (int(match.group(1)) - 1) * 100 + int(match.group(2)),
+        "decade",
+    )
+    english_centuries = {
+        "eighteenth": 18,
+        "nineteenth": 19,
+        "twentieth": 20,
+        "twenty-first": 21,
+    }
+    replace(
+        r"\b(eighteenth|nineteenth|twentieth|twenty-first)\s+century\b",
+        lambda match: english_centuries[match.group(1).casefold()],
+        "century",
+    )
+    replace(
+        r"(?<!\d)(\d{1,2})\s*世纪",
+        lambda match: int(match.group(1)),
+        "century",
+    )
+    replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
+    replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
+    magnitudes = {"thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+    replace(
+        r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(thousand|million|billion)\b",
+        lambda match: _scaled_number(match.group(1), magnitudes[match.group(2).casefold()]),
+        "quantity",
+    )
+    replace(
+        r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(万|亿)",
+        lambda match: _scaled_number(
+            match.group(1), 10_000 if match.group(2) == "万" else 100_000_000
+        ),
+        "quantity",
+    )
+    anchors.extend(_numbers(working))
     numeric_months = [
-        int(match.group(1)) for match in re.finditer(r"(?<!\d)(1[0-2]|0?[1-9])\s*月", text)
+        int(match.group(1)) for match in re.finditer(r"(?<!\d)(1[0-2]|0?[1-9])\s*月", working)
     ]
     for month in numeric_months:
         value = str(month)
@@ -162,9 +227,9 @@ def _numeric_anchors(text: str) -> list[str]:
             anchors.remove(value)
         anchors.append(f"month:{month}")
     for word, month in _ZH_MONTHS.items():
-        if re.search(rf"(?<![一二三四五六七八九十]){word}月", text):
+        if re.search(rf"(?<![一二三四五六七八九十]){word}月", working):
             anchors.append(f"month:{month}")
-    lowered = text.casefold()
+    lowered = working.casefold()
     for pattern, month in _MONTH_PATTERNS:
         date_pattern = (
             rf"(?:\b{pattern}\b\.?\s+(?:of\s+)?\d{{4}}"
@@ -173,6 +238,11 @@ def _numeric_anchors(text: str) -> list[str]:
         if re.search(date_pattern, lowered):
             anchors.append(f"month:{month}")
     return sorted(anchors)
+
+
+def _scaled_number(number: str, multiplier: int) -> str:
+    value = Decimal(number) * multiplier
+    return format(value.normalize(), "f")
 
 
 def _acronyms(text: str) -> list[str]:
@@ -208,17 +278,20 @@ def _acronyms(text: str) -> list[str]:
         "WITH",
     }
     candidates = set(re.findall(r"(?<![A-Za-z])[A-Z]{2,8}(?![A-Za-z])", text))
+    if re.search(r"\bWorld\s+War\s+II\b", text, flags=re.IGNORECASE):
+        candidates.discard("II")
     return sorted(candidates - common_words)
 
 
 def _contains_term(text: str, term: str) -> bool:
     """Match word-like Latin terms without treating them as substrings of words."""
     if re.fullmatch(r"[A-Za-z0-9_]+", term):
+        flags = 0 if len(term) > 1 and term.isupper() else re.IGNORECASE
         return bool(
             re.search(
                 rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])",
                 text,
-                flags=re.IGNORECASE,
+                flags=flags,
             )
         )
     return term.casefold() in text.casefold()

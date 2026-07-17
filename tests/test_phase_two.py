@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from docx import Document
 from ebooklib import epub
+import pytest
 
 from contextweaver.adapters import (
     MockTranslationAdapter,
@@ -228,10 +229,26 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
     assert "numeric_anchor_mismatch" not in {item.kind for item in issues}
 
 
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ("in the 1980s", "在20世纪80年代"),
+        ("throughout the 1950s and 1960s", "整个20世纪50年代和60年代"),
+        ("during the twentieth century", "在20世纪期间"),
+        ("World War II", "第二次世界大战"),
+        ("around 1.5 million cars", "约150万辆汽车"),
+    ],
+)
+def test_semantic_numeric_renderings_share_source_anchors(source: str, target: str) -> None:
+    from contextweaver.validation import _numeric_anchors
+
+    assert _numeric_anchors(source) == _numeric_anchors(target)
+
+
 def test_approved_acronym_translation_preserves_semantic_anchor(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
     source.write_text(
-        "# One\n\nA US industrial firm.\n\nIts purposes remain unchanged.\n",
+        "# One\n\nA US industrial firm.\n\nIts purposes let us proceed unchanged.\n",
         encoding="utf-8",
     )
     root = _project(tmp_path, source)

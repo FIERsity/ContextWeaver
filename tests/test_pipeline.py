@@ -9,6 +9,7 @@ from contextweaver.models import ContextPacket, SectionTitleRecord, TranslationR
 from contextweaver.pipeline import (
     build_context,
     export_project,
+    export_agent_batch,
     export_selected,
     import_document,
     import_section_title_draft,
@@ -86,6 +87,32 @@ def test_bounded_translation_rejects_invalid_limit(project: Path) -> None:
     segment_document(project)
     with pytest.raises(ValueError, match="max_units"):
         translate_project(project, MockTranslationAdapter(), max_units=0)
+
+
+def test_agent_batch_exports_pending_context_and_resumes_safely(
+    project: Path, tmp_path: Path
+) -> None:
+    sections, segments, _ = segment_document(project, unit_size=1)
+    assert translate_project(project, MockTranslationAdapter(), max_units=1) == (1, 0)
+    output = tmp_path / "agent-work.jsonl"
+    assert export_agent_batch(project, output, {sections[0].id}, max_units=1) == (1, 1)
+    row = json.loads(output.read_text(encoding="utf-8"))
+    assert row["schema_version"] == 1
+    assert row["section"] == {"id": sections[0].id, "title": "One"}
+    assert [item["id"] for item in row["context_packet"]["source_segments"]] == [segments[1].id]
+    assert row["context_packet"]["previous_text"] == "First paragraph."
+    assert row["response_contract"]["fields"] == ["segment_id", "translated_text"]
+    with pytest.raises(FileExistsError, match="--force"):
+        export_agent_batch(project, output)
+    assert export_agent_batch(project, output, {sections[1].id}, force=True) == (1, 1)
+
+
+def test_agent_batch_rejects_invalid_scope_and_limit(project: Path, tmp_path: Path) -> None:
+    segment_document(project)
+    with pytest.raises(ValueError, match="max_units"):
+        export_agent_batch(project, tmp_path / "batch.jsonl", max_units=0)
+    with pytest.raises(ValueError, match="Unknown section"):
+        export_agent_batch(project, tmp_path / "batch.jsonl", {"sec_missing"})
 
 
 def test_optional_epub_exports_are_readable(project: Path) -> None:

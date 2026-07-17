@@ -20,6 +20,8 @@ Version 0.8 adds a machine-readable v1 readiness audit and convergent autonomous
 
 Version 0.9 adds revision-tracked Section-title translation, localized Markdown/EPUB headings and navigation, source-title integrity checks, coherence invalidation after title edits, structural image passthrough, evidence auditing, and cost-bounded TranslationUnit batches.
 
+Version 0.10 adds bounded offline-Agent work packages and semantic numeric anchors for natural, source-backed Chinese renderings of dates, decades, centuries, historical ordinals, and scaled quantities.
+
 ## Quick start
 
 Python 3.11 or newer is required.
@@ -138,13 +140,15 @@ contextweaver translate my-book --term ContextWeaver --reason glossary-update
 Codex or another offline Agent can import a strict, reviewable JSONL draft without pretending an online API was used:
 
 ```bash
+contextweaver agent-batch my-book agent-work.jsonl \
+  --section sec_... --max-units 10
 contextweaver translation-import my-book draft.jsonl \
   --adapter codex-agent --model "GPT-5" --reason chapter-pilot
 contextweaver validate my-book --segment seg_... --segment seg_...
 contextweaver export my-book --format all --content all --segment seg_...
 ```
 
-Each draft row contains only `segment_id` and `translated_text`. Scoped validation/export allows a unit or chapter pilot to complete without treating the rest of the book as translated.
+`agent-batch` exports only pending TranslationUnits and includes their bounded ContextPackets, Section identity, source/target languages, strategy, summary, neighbors, approved knowledge, and optional reference evidence. It refuses to overwrite an existing package unless `--force` is explicit. The Agent's returned draft remains deliberately strict: each row contains only `segment_id` and `translated_text`. Scoped validation/export allows a unit or chapter pilot to complete without treating the rest of the book as translated.
 
 Section headings have a separate append-only revision chain so translated books do not retain English chapter titles or destabilize Section/Segment IDs:
 

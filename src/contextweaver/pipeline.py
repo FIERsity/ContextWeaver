@@ -189,6 +189,76 @@ def build_context(root: Path, unit: TranslationUnit) -> ContextPacket:
     )
 
 
+def export_agent_batch(
+    root: Path,
+    output: Path,
+    section_ids: set[str] | None = None,
+    max_units: int = 10,
+    force: bool = False,
+) -> tuple[int, int]:
+    """Export pending TranslationUnits as self-contained, read-only Agent work items."""
+    if max_units < 1:
+        raise ValueError("max_units must be at least 1")
+    if output.exists() and not force:
+        raise FileExistsError(f"Agent batch already exists: {output}; pass --force to replace it")
+    units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
+    if not units:
+        raise RuntimeError("No translation units. Run segment first.")
+    sections = read_jsonl(root / STATE / "sections.jsonl", Section)
+    section_map = {section.id: section for section in sections}
+    unknown = (section_ids or set()) - set(section_map)
+    if unknown:
+        raise ValueError(f"Unknown section IDs: {sorted(unknown)}")
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    project = _project(root)
+    rows: list[dict[str, object]] = []
+    segment_count = 0
+    for unit in units:
+        if section_ids is not None and unit.section_id not in section_ids:
+            continue
+        packet = build_context(root, unit)
+        pending = [segment for segment in packet.source_segments if segment.id not in active]
+        if not pending:
+            continue
+        if len(rows) >= max_units:
+            break
+        pending_packet = ContextPacket(
+            packet.unit_id,
+            pending,
+            packet.previous_text,
+            packet.next_text,
+            packet.section_summary,
+            [item for item in packet.glossary if item.status == "approved"],
+            [item for item in packet.entities if item.status == "approved"],
+            packet.reference_texts,
+            packet.source_language,
+            packet.target_language,
+            packet.translation_strategy,
+        )
+        section = section_map[unit.section_id]
+        rows.append(
+            {
+                "schema_version": 1,
+                "project_id": project.id,
+                "unit_id": unit.id,
+                "section": {"id": section.id, "title": section.title},
+                "context_packet": pending_packet.to_dict(),
+                "response_contract": {
+                    "format": "jsonl",
+                    "fields": ["segment_id", "translated_text"],
+                    "one_row_per_source_segment": True,
+                },
+            }
+        )
+        segment_count += len(pending)
+    content = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_text(content, encoding="utf-8", newline="\n")
+    temporary.replace(output)
+    return len(rows), segment_count
+
+
 @lru_cache(maxsize=16)
 def _context_index(
     root_text: str, stamps: tuple[int, ...]

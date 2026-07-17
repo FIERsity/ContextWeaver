@@ -10,6 +10,9 @@ def test_cli_end_to_end(tmp_path: Path) -> None:
     assert run(["init", str(project), "--name", "Demo"]) == 0
     assert run(["import", str(project), str(source)]) == 0
     assert run(["segment", str(project)]) == 0
+    batch = tmp_path / "agent-batch.jsonl"
+    assert run(["agent-batch", str(project), str(batch), "--max-units", "1"]) == 0
+    assert batch.exists()
     assert run(["translate", str(project)]) == 0
     assert run(["validate", str(project)]) == 0
     assert run(["export", str(project)]) == 0

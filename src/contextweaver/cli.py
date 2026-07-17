@@ -28,6 +28,7 @@ from .summaries import summarize_project
 from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
     export_selected,
+    export_agent_batch,
     import_document,
     import_translation_draft,
     import_section_title_draft,
@@ -135,6 +136,14 @@ def parser() -> argparse.ArgumentParser:
     draft.add_argument("--adapter", default="codex-agent")
     draft.add_argument("--model", required=True)
     draft.add_argument("--reason", required=True)
+    batch = commands.add_parser(
+        "agent-batch", help="Export pending TranslationUnits with bounded Agent context"
+    )
+    batch.add_argument("project", type=Path)
+    batch.add_argument("output", type=Path)
+    batch.add_argument("--section", action="append", default=[])
+    batch.add_argument("--max-units", type=int, default=10)
+    batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
     titles = commands.add_parser(
         "translate-titles", help="Translate missing Section titles without changing Section IDs"
     )
@@ -322,6 +331,20 @@ def run(argv: list[str] | None = None) -> int:
                 args.project, args.draft, args.adapter, args.model, args.reason
             )
             LOG.info("Imported %d translation revision(s)", count)
+        elif args.command == "agent-batch":
+            units, segments = export_agent_batch(
+                args.project,
+                args.output,
+                set(args.section) or None,
+                args.max_units,
+                args.force,
+            )
+            LOG.info(
+                "Wrote %d pending unit(s) containing %d segment(s) to %s",
+                units,
+                segments,
+                args.output,
+            )
         elif args.command == "translate-titles":
             adapter = (
                 MockTranslationAdapter()
