@@ -6,7 +6,7 @@ from contextweaver.adapters import HeuristicReviewAdapter, MockTranslationAdapte
 from contextweaver.audit import audit_project
 from contextweaver.coherence import review_book, review_sections
 from contextweaver.coherence_adapters import HeuristicCoherenceReviewAdapter
-from contextweaver.models import Entity, SectionTitleRecord
+from contextweaver.models import Entity, SectionTitleRecord, TranslationRecord
 from contextweaver.pipeline import (
     export_selected,
     import_document,
@@ -101,3 +101,22 @@ def test_audit_rejects_section_title_bound_to_wrong_source_digest(tmp_path: Path
     report = audit_project(root, allow_mock=True)
     failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
     assert "section_title_revision_integrity" in failed
+
+
+def test_release_audit_uses_strict_numeric_validation(tmp_path: Path) -> None:
+    root, segment_id = _complete_project(tmp_path)
+    path = root / "state" / "translations.jsonl"
+    records = read_jsonl(path, TranslationRecord)
+    write_jsonl(
+        path,
+        [
+            replace(item, translated_text=f"{item.translated_text} 2025")
+            if item.segment_id == segment_id
+            else item
+            for item in records
+        ],
+    )
+    report = audit_project(root, allow_mock=True)
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["deterministic_validation"]["status"] == "fail"
+    assert checks["deterministic_validation"]["evidence"]["blocking_errors"] == 1

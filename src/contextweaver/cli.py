@@ -28,7 +28,7 @@ from .summaries import summarize_project
 from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
     DEFAULT_AGENT_BATCH_MAX_UNITS,
-    DEFAULT_AGENT_BATCH_SOURCE_CHARS,
+    DEFAULT_MODEL_CONTEXT_TOKENS,
     export_selected,
     export_agent_batch,
     plan_agent_campaign,
@@ -96,6 +96,12 @@ def parser() -> argparse.ArgumentParser:
     val.add_argument(
         "--segment", action="append", default=[], help="Validate only selected segment IDs"
     )
+    val.add_argument(
+        "--numeric-mode",
+        choices=["balanced", "strict"],
+        default="balanced",
+        help="Balanced warns on target-only numbers; strict blocks every mismatch",
+    )
     exp = commands.add_parser("export", help="Export selected Markdown and/or EPUB artifacts")
     exp.add_argument("project", type=Path)
     exp.add_argument("--format", choices=["markdown", "epub", "all"], default="markdown")
@@ -153,8 +159,13 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument(
         "--target-source-chars",
         type=int,
-        default=DEFAULT_AGENT_BATCH_SOURCE_CHARS,
-        help="Adaptive source-character budget (default: 120000)",
+        help="Override the source-character budget derived from model context",
+    )
+    batch.add_argument(
+        "--context-window-tokens",
+        type=int,
+        default=DEFAULT_MODEL_CONTEXT_TOKENS,
+        help="Operational model context estimate used for batch planning",
     )
     batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
     campaign = commands.add_parser(
@@ -163,10 +174,13 @@ def parser() -> argparse.ArgumentParser:
     campaign.add_argument("project", type=Path)
     campaign.add_argument("--max-segments", type=int)
     campaign.add_argument(
-        "--checkpoint-source-chars", type=int, default=DEFAULT_AGENT_BATCH_SOURCE_CHARS
+        "--checkpoint-source-chars", type=int
     )
     campaign.add_argument(
         "--checkpoint-max-units", type=int, default=DEFAULT_AGENT_BATCH_MAX_UNITS
+    )
+    campaign.add_argument(
+        "--context-window-tokens", type=int, default=DEFAULT_MODEL_CONTEXT_TOKENS
     )
     campaign.add_argument(
         "--refresh", action="store_true", help="Replace the existing campaign scope and plan"
@@ -309,10 +323,14 @@ def run(argv: list[str] | None = None) -> int:
             LOG.info("Translated %d segments; skipped %d completed segments", written, skipped)
         elif args.command == "validate":
             issues = validate_project(
-                args.project, set(args.section) or None, set(args.segment) or None
+                args.project,
+                set(args.section) or None,
+                set(args.segment) or None,
+                args.numeric_mode,
             )
             for issue in issues:
-                LOG.error("%s: %s (%s)", issue.kind, issue.message, issue.segment_id)
+                log = LOG.error if issue.severity == "error" else LOG.warning
+                log("%s: %s (%s)", issue.kind, issue.message, issue.segment_id)
             LOG.info("Validation completed with %d issue(s)", len(issues))
             return 1 if any(issue.severity == "error" for issue in issues) else 0
         elif args.command == "export":
@@ -366,6 +384,7 @@ def run(argv: list[str] | None = None) -> int:
                 args.max_units,
                 args.force,
                 args.target_source_chars,
+                args.context_window_tokens,
             )
             LOG.info(
                 "Wrote %d pending unit(s) containing %d segment(s) to %s",
@@ -380,6 +399,7 @@ def run(argv: list[str] | None = None) -> int:
                 args.checkpoint_source_chars,
                 args.checkpoint_max_units,
                 args.refresh,
+                args.context_window_tokens,
             )
             LOG.info(
                 "Campaign %s: %d/%d segments complete across %d checkpoint(s)",

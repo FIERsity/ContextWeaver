@@ -143,9 +143,14 @@ def test_agent_batch_production_defaults_are_chapter_sized(project: Path, tmp_pa
     segment_document(project, unit_size=1)
     export_agent_batch(project, tmp_path / "default.jsonl")
     strategy = json.loads((project / "state" / "batch_strategy.json").read_text())
-    assert strategy["target_source_chars"] == 120_000
-    assert strategy["max_units"] == 100
+    assert strategy["target_source_chars"] == 400_000
+    assert strategy["nominal_serialized_input_chars"] == 800_000
+    assert strategy["usable_context_tokens"] == 340_000
+    assert strategy["last_package"]["estimated_workload_tokens"] <= 340_000
+    assert strategy["max_units"] == 500
     assert strategy["stop_at_section_boundary"] is True
+    assert strategy["model_context"]["context_window_tokens"] == 400_000
+    assert strategy["model_context"]["budget_source"] == "derived"
 
 
 def test_agent_campaign_plans_all_pending_and_refreshes_progress(

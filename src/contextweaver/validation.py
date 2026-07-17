@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 import re
 from collections.abc import Callable
@@ -13,8 +13,13 @@ from .pipeline import active_translations, stable_id
 
 
 def quality_issues(
-    segments: list[Segment], records: list[TranslationRecord], glossary: list[GlossaryEntry]
+    segments: list[Segment],
+    records: list[TranslationRecord],
+    glossary: list[GlossaryEntry],
+    numeric_mode: str = "balanced",
 ) -> list[ReviewIssue]:
+    if numeric_mode not in {"balanced", "strict"}:
+        raise ValueError("numeric_mode must be 'balanced' or 'strict'")
     active = active_translations(records)
     issues: list[ReviewIssue] = []
     repeated: dict[str, set[str]] = defaultdict(set)
@@ -51,13 +56,25 @@ def quality_issues(
             )
         source_numbers = _numeric_anchors(segment.text)
         target_numbers = _numeric_anchors(output)
-        if source_numbers != target_numbers:
+        # Both modes compare semantic quantities rather than surface notation.
+        # Strictness controls mismatch severity, not whether 2,000 and a
+        # source-backed written/scaled rendering describe the same quantity.
+        compared_source = _balanced_numeric_anchors(source_numbers)
+        compared_target = _balanced_numeric_anchors(target_numbers)
+        if compared_source != compared_target:
+            missing = Counter(compared_source) - Counter(compared_target)
+            extra = Counter(compared_target) - Counter(compared_source)
+            severity = "error" if missing or numeric_mode == "strict" else "warning"
             issues.append(
                 _issue(
                     "numeric_anchor_mismatch",
-                    f"Source numeric anchors {source_numbers} differ from translation {target_numbers}",
+                    (
+                        f"Source numeric anchors {source_numbers} differ from translation "
+                        f"{target_numbers}; missing {sorted(missing.elements())}, "
+                        f"extra {sorted(extra.elements())}"
+                    ),
                     segment.id,
-                    "error",
+                    severity,
                 )
             )
         for acronym in _acronyms(segment.text):
@@ -106,6 +123,11 @@ def quality_issues(
                 )
             )
     return issues
+
+
+def _balanced_numeric_anchors(anchors: list[str]) -> list[str]:
+    """Treat explicit and spelled quantities as equal while retaining typed dates."""
+    return sorted(item.removeprefix("quantity:") for item in anchors)
 
 
 def _issue(kind: str, message: str, segment_id: str, severity: str) -> ReviewIssue:
@@ -162,6 +184,17 @@ def _numeric_anchors(text: str) -> list[str]:
 
         def substitution(match: re.Match[str]) -> str:
             anchors.append(f"{value}:{convert(match)}")
+            return " "
+
+        working = re.sub(pattern, substitution, working, flags=re.IGNORECASE)
+
+    def replace_many(
+        pattern: str, convert: Callable[[re.Match[str]], list[object]], value: str
+    ) -> None:
+        nonlocal working
+
+        def substitution(match: re.Match[str]) -> str:
+            anchors.extend(f"{value}:{item}" for item in convert(match))
             return " "
 
         working = re.sub(pattern, substitution, working, flags=re.IGNORECASE)
@@ -289,28 +322,101 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: int(match.group(1)),
         "ordinal",
     )
-    magnitudes = {"thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
-    word_numbers = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+    magnitudes = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+    word_numbers = {
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+        "eleven": 11,
+        "twelve": 12,
+        "thirteen": 13,
+        "fourteen": 14,
+        "fifteen": 15,
+        "sixteen": 16,
+        "seventeen": 17,
+        "eighteen": 18,
+        "nineteen": 19,
+    }
+    number_words = "|".join(word_numbers)
     replace(
-        r"\b(one|two|three|four|five)\s+(thousand|million|billion)\b",
+        rf"\b({number_words})\s+hundred\s+thousand\b",
+        lambda match: word_numbers[match.group(1).casefold()] * 100_000,
+        "quantity",
+    )
+    replace(
+        rf"\b({number_words})\s+(hundred|thousand|million|billion)\b",
         lambda match: word_numbers[match.group(1).casefold()]
         * magnitudes[match.group(2).casefold()],
         "quantity",
     )
-    chinese_number = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5}
+    replace(r"\ba\s+million\b", lambda _match: 1_000_000, "quantity")
+    chinese_number = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "两": 2,
+    }
     replace(
-        r"([一二三四五])\s*(千|百万|十亿)",
+        r"([一二三四五六七八九两])万([一二三四五六七八九两])千",
+        lambda match: chinese_number[match.group(1)] * 10_000
+        + chinese_number[match.group(2)] * 1_000,
+        "quantity",
+    )
+    replace(
+        r"([一二三四五六七八九两])千([一二三四五六七八九两])百",
+        lambda match: chinese_number[match.group(1)] * 1_000
+        + chinese_number[match.group(2)] * 100,
+        "quantity",
+    )
+    replace(
+        r"([一二三四五六七八九])十万",
+        lambda match: chinese_number[match.group(1)] * 100_000,
+        "quantity",
+    )
+    replace(
+        r"([一二三四五六七八九两])\s*(千|百万|十亿)",
         lambda match: chinese_number[match.group(1)]
         * {"千": 1_000, "百万": 1_000_000, "十亿": 1_000_000_000}[match.group(2)],
         "quantity",
     )
     replace(
-        r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(thousand|million|billion)\b",
+        r"([一二三四五六七八九两])百",
+        lambda match: chinese_number[match.group(1)] * 100,
+        "quantity",
+    )
+    replace(
+        r"([一二三四五六七八九两])万",
+        lambda match: chinese_number[match.group(1)] * 10_000,
+        "quantity",
+    )
+    replace_many(
+        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*[‒–—-]\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion)\b",
+        lambda match: [
+            _scaled_number(match.group(1), magnitudes[match.group(3).casefold()]),
+            _scaled_number(match.group(2), magnitudes[match.group(3).casefold()]),
+        ],
+        "quantity",
+    )
+    replace(
+        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*(thousand|million|billion)\b",
         lambda match: _scaled_number(match.group(1), magnitudes[match.group(2).casefold()]),
         "quantity",
     )
     replace(
-        r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(万|亿)",
+        r"(?<![A-Za-z0-9_.])(\d[\d,]*(?:\.\d+)?)\s*(万|亿)",
         lambda match: _scaled_number(
             match.group(1), 10_000 if match.group(2) == "万" else 100_000_000
         ),
@@ -367,7 +473,7 @@ def _chapter_number(value: str, words: dict[str, int]) -> int:
 
 
 def _scaled_number(number: str, multiplier: int) -> str:
-    value = Decimal(number) * multiplier
+    value = Decimal(number.replace(",", "")) * multiplier
     return format(value.normalize(), "f")
 
 
@@ -406,7 +512,11 @@ def _acronyms(text: str) -> list[str]:
     candidates = set(re.findall(r"(?<![A-Za-z])[A-Z]{2,8}(?![A-Za-z])", text))
     if re.search(r"\bWorld\s+War\s+II\b", text, flags=re.IGNORECASE):
         candidates.discard("II")
-    return sorted(candidates - common_words)
+    return sorted(
+        candidate
+        for candidate in candidates - common_words
+        if not re.fullmatch(r"[IVXLCDM]+", candidate)
+    )
 
 
 def _contains_term(text: str, term: str) -> bool:

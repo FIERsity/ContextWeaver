@@ -197,6 +197,31 @@ def test_numeric_anchor_validation_is_blocking(tmp_path: Path) -> None:
     assert "numeric_anchor_mismatch" in {item.kind for item in issues}
 
 
+def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nNo quantity was stated.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        json.dumps(
+            {"segment_id": segments[0].id, "translated_text": "原文未说明数量，但这里写了5。"},
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "test", "numeric-mode")
+    balanced = validate_project(root)
+    strict = validate_project(root, numeric_mode="strict")
+    assert [item.severity for item in balanced if item.kind == "numeric_anchor_mismatch"] == [
+        "warning"
+    ]
+    assert [item.severity for item in strict if item.kind == "numeric_anchor_mismatch"] == [
+        "error"
+    ]
+
+
 def test_numeric_anchors_work_next_to_cjk() -> None:
     from contextweaver.validation import _numbers, _numeric_anchors
 
@@ -251,6 +276,13 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
         ("five thousand bonuses", "五千笔奖金"),
         ("for more than a millennium", "延续超过一千年"),
         ("for more than a thousand years", "延续超过一千年"),
+        ("two hundred thousand residents", "二十万名居民"),
+        ("thirteen thousand sheep", "一万三千只羊"),
+        ("fifteen hundred people", "一千五百人"),
+        ("about a million people", "约一百万人"),
+        ("17–18 million people", "1700万至1800万人"),
+        ("over five hundred years", "五百多年"),
+        ("ten thousand workers", "一万名工人"),
         ("the 5th Regiment", "第5团"),
     ],
 )
@@ -258,6 +290,12 @@ def test_semantic_numeric_renderings_share_source_anchors(source: str, target: s
     from contextweaver.validation import _numeric_anchors
 
     assert _numeric_anchors(source) == _numeric_anchors(target)
+
+
+def test_roman_regnal_numbers_are_not_acronyms() -> None:
+    from contextweaver.validation import _acronyms
+
+    assert _acronyms("Henry VIII met Richard II") == []
 
 
 def test_approved_acronym_translation_preserves_semantic_anchor(tmp_path: Path) -> None:

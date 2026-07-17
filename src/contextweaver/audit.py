@@ -293,7 +293,13 @@ def audit_project(root: Path, *, allow_mock: bool = False) -> dict[str, Any]:
     )
     blocking_errors: int | None = None
     if translated_ids == segment_ids and segments:
-        blocking_errors = sum(item.severity == "error" for item in validate_project(root))
+        # Interactive validation is deliberately tolerant of source-backed numeric
+        # reformulation. A release audit is the final conservative gate, so every
+        # unresolved numeric mismatch must be reviewed or normalized first.
+        blocking_errors = sum(
+            item.severity == "error"
+            for item in validate_project(root, numeric_mode="strict")
+        )
     _check(
         checks,
         "deterministic_validation",

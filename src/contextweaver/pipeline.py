@@ -32,8 +32,36 @@ from .models import (
 from .storage import append_jsonl, read_json, read_jsonl, write_json, write_jsonl
 
 STATE = "state"
-DEFAULT_AGENT_BATCH_SOURCE_CHARS = 120_000
-DEFAULT_AGENT_BATCH_MAX_UNITS = 100
+DEFAULT_MODEL_CONTEXT_TOKENS = 400_000
+DEFAULT_AGENT_BATCH_MAX_UNITS = 500
+
+
+def agent_source_char_budget(context_window_tokens: int) -> int:
+    """Reserve model context for source, target, shared context, and safety."""
+    if context_window_tokens < 1:
+        raise ValueError("context_window_tokens must be at least 1")
+    return int(context_window_tokens * 0.25 * 4.0)
+
+
+def agent_input_char_budget(context_window_tokens: int) -> int:
+    """Return the nominal source-plus-shared input allocation."""
+    if context_window_tokens < 1:
+        raise ValueError("context_window_tokens must be at least 1")
+    return int(context_window_tokens * (0.25 + 0.25) * 4.0)
+
+
+def agent_usable_token_budget(context_window_tokens: int) -> int:
+    """Reserve 15% of the model window and allow the remaining budget to flex."""
+    if context_window_tokens < 1:
+        raise ValueError("context_window_tokens must be at least 1")
+    return int(context_window_tokens * 0.85)
+
+
+def agent_workload_tokens(serialized_input_chars: int, source_chars: int) -> int:
+    """Estimate input plus Chinese target tokens for adaptive batch selection."""
+    input_tokens = (serialized_input_chars + 3) // 4
+    target_tokens = int(source_chars * 0.6 + 0.999)
+    return input_tokens + target_tokens
 
 
 def stable_id(prefix: str, *parts: object) -> str:
@@ -197,13 +225,17 @@ def export_agent_batch(
     section_ids: set[str] | None = None,
     max_units: int | None = None,
     force: bool = False,
-    target_source_chars: int = DEFAULT_AGENT_BATCH_SOURCE_CHARS,
+    target_source_chars: int | None = None,
+    context_window_tokens: int = DEFAULT_MODEL_CONTEXT_TOKENS,
 ) -> tuple[int, int]:
     """Export pending TranslationUnits as self-contained, read-only Agent work items."""
     if max_units is not None and max_units < 1:
         raise ValueError("max_units must be at least 1")
-    if target_source_chars < 1:
+    if target_source_chars is not None and target_source_chars < 1:
         raise ValueError("target_source_chars must be at least 1")
+    source_char_budget = target_source_chars or agent_source_char_budget(context_window_tokens)
+    nominal_input_char_budget = agent_input_char_budget(context_window_tokens)
+    usable_token_budget = agent_usable_token_budget(context_window_tokens)
     if output.exists() and not force:
         raise FileExistsError(f"Agent batch already exists: {output}; pass --force to replace it")
     units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
@@ -219,6 +251,7 @@ def export_agent_batch(
     rows: list[dict[str, object]] = []
     segment_count = 0
     source_chars = 0
+    serialized_input_chars = 0
     selected_section_id: str | None = None
     adaptive = max_units is None
     unit_limit = max_units or DEFAULT_AGENT_BATCH_MAX_UNITS
@@ -234,7 +267,7 @@ def export_agent_batch(
             break
         if len(rows) >= unit_limit:
             break
-        if adaptive and rows and source_chars + pending_chars > target_source_chars:
+        if adaptive and rows and source_chars + pending_chars > source_char_budget:
             break
         selected_section_id = unit.section_id
         pending_packet = ContextPacket(
@@ -251,8 +284,7 @@ def export_agent_batch(
             packet.translation_strategy,
         )
         section = section_map[unit.section_id]
-        rows.append(
-            {
+        row = {
                 "schema_version": 1,
                 "project_id": project.id,
                 "unit_id": unit.id,
@@ -264,9 +296,20 @@ def export_agent_batch(
                     "one_row_per_source_segment": True,
                 },
             }
-        )
+        serialized_row = json.dumps(row, ensure_ascii=False) + "\n"
+        candidate_input_chars = serialized_input_chars + len(serialized_row)
+        candidate_source_chars = source_chars + pending_chars
+        if (
+            adaptive
+            and rows
+            and agent_workload_tokens(candidate_input_chars, candidate_source_chars)
+            > usable_token_budget
+        ):
+            break
+        rows.append(row)
         segment_count += len(pending)
         source_chars += pending_chars
+        serialized_input_chars += len(serialized_row)
     content = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
@@ -278,18 +321,37 @@ def export_agent_batch(
             {
                 "schema_version": 1,
                 "mode": "adaptive",
-                "target_source_chars": target_source_chars,
+                "target_source_chars": source_char_budget,
+                "nominal_serialized_input_chars": nominal_input_char_budget,
+                "usable_context_tokens": usable_token_budget,
                 "max_units": unit_limit,
                 "stop_at_section_boundary": True,
+                "model_context": {
+                    "context_window_tokens": context_window_tokens,
+                    "source_input_fraction": 0.25,
+                    "target_output_fraction": 0.35,
+                    "shared_context_fraction": 0.25,
+                    "safety_fraction": 0.15,
+                    "estimated_source_chars_per_token": 4.0,
+                    "estimated_input_chars_per_token": 4.0,
+                    "estimated_target_tokens_per_source_char": 0.6,
+                    "allocation_is_flexible": True,
+                    "budget_source": "explicit" if target_source_chars else "derived",
+                },
                 "last_package": {
                     "unit_count": len(rows),
                     "segment_count": segment_count,
                     "source_chars": source_chars,
+                    "serialized_input_chars": serialized_input_chars,
+                    "estimated_workload_tokens": agent_workload_tokens(
+                        serialized_input_chars, source_chars
+                    ),
                     "section_id": selected_section_id,
                 },
                 "rationale": (
-                    "Bound recovery and review cost by source characters while keeping each "
-                    "TranslationUnit context independent. Explicit --max-units overrides this policy."
+                    "Derive source and serialized-input budgets from the declared model context, "
+                    "prefer a complete Section, and keep each TranslationUnit independently bounded. "
+                    "Explicit --max-units overrides adaptive selection."
                 ),
             },
         )
@@ -299,17 +361,21 @@ def export_agent_batch(
 def plan_agent_campaign(
     root: Path,
     max_segments: int | None = None,
-    checkpoint_source_chars: int = DEFAULT_AGENT_BATCH_SOURCE_CHARS,
+    checkpoint_source_chars: int | None = None,
     checkpoint_max_units: int = DEFAULT_AGENT_BATCH_MAX_UNITS,
     refresh: bool = False,
+    context_window_tokens: int = DEFAULT_MODEL_CONTEXT_TOKENS,
 ) -> dict[str, object]:
     """Create or refresh a compact whole-run plan without expanding ContextPackets."""
     if max_segments is not None and max_segments < 1:
         raise ValueError("max_segments must be at least 1")
-    if checkpoint_source_chars < 1:
+    if checkpoint_source_chars is not None and checkpoint_source_chars < 1:
         raise ValueError("checkpoint_source_chars must be at least 1")
     if checkpoint_max_units < 1:
         raise ValueError("checkpoint_max_units must be at least 1")
+    source_char_budget = checkpoint_source_chars or agent_source_char_budget(context_window_tokens)
+    nominal_input_char_budget = agent_input_char_budget(context_window_tokens)
+    usable_token_budget = agent_usable_token_budget(context_window_tokens)
     path = root / STATE / "agent_campaign.json"
     active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
     if path.exists() and not refresh:
@@ -333,7 +399,7 @@ def plan_agent_campaign(
         raise RuntimeError("No translation units. Run segment first.")
     segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
     segment_map = {segment.id: segment for segment in segments}
-    selected: list[tuple[TranslationUnit, list[Segment]]] = []
+    selected: list[tuple[TranslationUnit, list[Segment], int]] = []
     selected_segments = 0
     for unit in units:
         pending = [segment_map[item] for item in unit.segment_ids if item not in active]
@@ -341,45 +407,71 @@ def plan_agent_campaign(
             continue
         if max_segments is not None and selected and selected_segments + len(pending) > max_segments:
             break
-        selected.append((unit, pending))
+        packet = build_context(root, unit)
+        pending_packet = ContextPacket(
+            packet.unit_id,
+            pending,
+            packet.previous_text,
+            packet.next_text,
+            packet.section_summary,
+            [item for item in packet.glossary if item.status == "approved"],
+            [item for item in packet.entities if item.status == "approved"],
+            packet.reference_texts,
+            packet.source_language,
+            packet.target_language,
+            packet.translation_strategy,
+        )
+        input_chars = len(json.dumps(pending_packet.to_dict(), ensure_ascii=False)) + 512
+        selected.append((unit, pending, input_chars))
         selected_segments += len(pending)
         if max_segments is not None and selected_segments >= max_segments:
             break
     checkpoints: list[dict[str, object]] = []
-    current: list[tuple[TranslationUnit, list[Segment]]] = []
+    current: list[tuple[TranslationUnit, list[Segment], int]] = []
     current_chars = 0
+    current_input_chars = 0
 
     def flush() -> None:
-        nonlocal current, current_chars
+        nonlocal current, current_chars, current_input_chars
         if not current:
             return
-        segment_ids = [segment.id for _, items in current for segment in items]
+        segment_ids = [segment.id for _, items, _ in current for segment in items]
         checkpoints.append(
             {
                 "ordinal": len(checkpoints),
                 "section_id": current[0][0].section_id,
-                "unit_ids": [unit.id for unit, _ in current],
+                "unit_ids": [unit.id for unit, _, _ in current],
                 "segment_ids": segment_ids,
                 "unit_count": len(current),
                 "segment_count": len(segment_ids),
                 "source_chars": current_chars,
+                "estimated_serialized_input_chars": current_input_chars,
+                "estimated_workload_tokens": agent_workload_tokens(
+                    current_input_chars, current_chars
+                ),
                 "completed_segments": 0,
                 "status": "pending",
             }
         )
         current = []
         current_chars = 0
+        current_input_chars = 0
 
-    for unit, pending in selected:
+    for unit, pending, input_chars in selected:
         pending_chars = sum(len(segment.text) for segment in pending)
         if current and (
             unit.section_id != current[0][0].section_id
             or len(current) >= checkpoint_max_units
-            or current_chars + pending_chars > checkpoint_source_chars
+            or current_chars + pending_chars > source_char_budget
+            or agent_workload_tokens(
+                current_input_chars + input_chars, current_chars + pending_chars
+            )
+            > usable_token_budget
         ):
             flush()
-        current.append((unit, pending))
+        current.append((unit, pending, input_chars))
         current_chars += pending_chars
+        current_input_chars += input_chars
     flush()
     now = datetime.now(timezone.utc).isoformat()
     project = _project(root)
@@ -397,9 +489,23 @@ def plan_agent_campaign(
         "target_segments": selected_segments,
         "completed_segments": 0,
         "checkpoint_policy": {
-            "target_source_chars": checkpoint_source_chars,
+            "target_source_chars": source_char_budget,
+            "nominal_serialized_input_chars": nominal_input_char_budget,
+            "usable_context_tokens": usable_token_budget,
             "max_units": checkpoint_max_units,
             "stop_at_section_boundary": True,
+            "model_context": {
+                "context_window_tokens": context_window_tokens,
+                "source_input_fraction": 0.25,
+                "target_output_fraction": 0.35,
+                "shared_context_fraction": 0.25,
+                "safety_fraction": 0.15,
+                "estimated_source_chars_per_token": 4.0,
+                "estimated_input_chars_per_token": 4.0,
+                "estimated_target_tokens_per_source_char": 0.6,
+                "allocation_is_flexible": True,
+                "budget_source": "explicit" if checkpoint_source_chars else "derived",
+            },
         },
         "checkpoint_count": len(checkpoints),
         "checkpoints": checkpoints,
@@ -673,6 +779,7 @@ def validate_project(
     root: Path,
     section_ids: set[str] | None = None,
     segment_ids: set[str] | None = None,
+    numeric_mode: str = "balanced",
 ) -> list[ReviewIssue]:
     all_segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
     segments = [
@@ -708,7 +815,7 @@ def validate_project(
             )
     from .validation import quality_issues
 
-    issues.extend(quality_issues(segments, records, _glossary(root)))
+    issues.extend(quality_issues(segments, records, _glossary(root), numeric_mode))
     if section_ids or segment_ids:
         scope_ids = sorted((section_ids or set()) | (segment_ids or set()))
         scope = scope_ids[0] if len(scope_ids) == 1 else stable_id("scope", *scope_ids)
