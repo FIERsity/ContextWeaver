@@ -5,7 +5,8 @@ import pytest
 from ebooklib import epub
 
 from contextweaver.adapters import MockTranslationAdapter, TranslationAdapter
-from contextweaver.models import ContextPacket, SectionTitleRecord, TranslationRecord
+from contextweaver.exporters import _reader_typography, render_markdown
+from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
     export_project,
@@ -186,6 +187,17 @@ def test_optional_epub_exports_are_readable(project: Path) -> None:
         assert book.get_metadata("DC", "title")
         assert len(book.spine) == 4
         assert book.get_metadata("DC", "creator")[0][0].startswith("ContextWeaver Mock Adapter")
+
+
+def test_reader_export_uses_chinese_outer_quotes_and_css_heading_heuristic() -> None:
+    assert _reader_typography("她说：‘你好。’") == "她说：“你好。”"
+    assert _reader_typography("她说：“所谓‘进步’，并不简单。”") == "她说：“所谓‘进步’，并不简单。”"
+    section = Section("section", "document", "Chapter", 1, 0)
+    segment = Segment(
+        "segment", "document", "section", 0, "Radio Days", raw="Radio Days"
+    )
+    output = render_markdown([section], [segment], {segment.id: "广播时代"}, "translated")
+    assert "## 广播时代" in output
 
 
 def test_validation_reports_missing_translation(project: Path) -> None:

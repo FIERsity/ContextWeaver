@@ -36,11 +36,19 @@ def render_markdown(
             )
             lines.extend([f"{'#' * section.level} {heading}", ""])
             previous = segment.section_id
-        target = translated[segment.id]
+        target = _reader_typography(translated[segment.id])
         if content == "translated":
-            lines.extend([target, ""])
+            if _is_probable_subheading(segment):
+                lines.extend([f"{'#' * min(section_map[segment.section_id].level + 1, 6)} {target}", ""])
+            else:
+                lines.extend([target, ""])
         else:
-            lines.extend([f"> {segment.raw or segment.text}", "", target, "", "---", ""])
+            target_block = (
+                f"{'#' * min(section_map[segment.section_id].level + 1, 6)} {target}"
+                if _is_probable_subheading(segment)
+                else target
+            )
+            lines.extend([f"> {segment.raw or segment.text}", "", target_block, "", "---", ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -111,7 +119,8 @@ def write_epub(
                 + "</p>"
             )
         for segment in section_segments:
-            target_html = renderer.render(_safe_epub_markdown(translated[segment.id]))
+            target = _reader_typography(translated[segment.id])
+            target_html = renderer.render(_safe_epub_markdown(target))
             if content == "bilingual":
                 source_html = renderer.render(_safe_epub_markdown(segment.raw or segment.text))
                 body.extend(
@@ -127,7 +136,10 @@ def write_epub(
                     ]
                 )
             else:
-                body.append(target_html)
+                if _is_probable_subheading(segment):
+                    body.append(f"<h2>{html.escape(target)}</h2>")
+                else:
+                    body.append(target_html)
         chapter = epub.EpubHtml(
             title=target_title,
             file_name=f"section-{section.ordinal:04d}.xhtml",
@@ -151,6 +163,53 @@ def _safe_epub_markdown(value: str) -> str:
     """Replace unresolved source images with explicit text placeholders."""
     return re.sub(
         r"!\[([^]]*)\]\([^)]+\)", lambda match: f"*[Image: {match.group(1) or 'unlabeled'}]*", value
+    )
+
+
+def _reader_typography(value: str) -> str:
+    """Apply conservative zh-CN reader typography without changing stored records."""
+    # Preserve literal code spans: a backtick is meaningful Markdown there and
+    # must never be mistaken for quotation punctuation.
+    parts = re.split(r"(`[^`\n]*`)", value)
+    for index in range(0, len(parts), 2):
+        parts[index] = _normalize_quote_marks(parts[index])
+    return "".join(parts)
+
+
+def _normalize_quote_marks(value: str) -> str:
+    """Use double quotes for outer Chinese quotations and singles for nesting."""
+    output: list[str] = []
+    double_depth = 0
+    for character in value:
+        if character == "“":
+            double_depth += 1
+        elif character == "”" and double_depth:
+            double_depth -= 1
+        if character == "‘" and double_depth == 0:
+            output.append("“")
+        elif character == "’" and double_depth == 0:
+            output.append("”")
+        else:
+            output.append(character)
+    return "".join(output)
+
+
+def _is_probable_subheading(segment: Segment) -> bool:
+    """Recognize imported EPUB's CSS-only title paragraphs for reader output.
+
+    The source EPUB does not expose these as heading tags.  This deliberately
+    narrow heuristic avoids promoting ordinary prose, and never affects stored
+    Segments or source alignment.
+    """
+    source = segment.text.strip()
+    words = source.split()
+    return (
+        segment.kind == "paragraph"
+        and source == (segment.raw or source).strip()
+        and 1 < len(words) <= 8
+        and len(source) <= 80
+        and not re.search(r"[.!?;:]$", source)
+        and all(word[:1].isupper() or word.casefold() in {"of", "the", "and", "in", "to"} for word in words)
     )
 
 
