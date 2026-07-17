@@ -29,6 +29,7 @@ from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
     export_selected,
     export_agent_batch,
+    plan_agent_campaign,
     import_document,
     import_translation_draft,
     import_section_title_draft,
@@ -154,6 +155,16 @@ def parser() -> argparse.ArgumentParser:
         help="Adaptive source-character budget (default: 40000)",
     )
     batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
+    campaign = commands.add_parser(
+        "agent-campaign", help="Plan or inspect a resumable multi-chapter Agent campaign"
+    )
+    campaign.add_argument("project", type=Path)
+    campaign.add_argument("--max-segments", type=int)
+    campaign.add_argument("--checkpoint-source-chars", type=int, default=40_000)
+    campaign.add_argument("--checkpoint-max-units", type=int, default=30)
+    campaign.add_argument(
+        "--refresh", action="store_true", help="Replace the existing campaign scope and plan"
+    )
     titles = commands.add_parser(
         "translate-titles", help="Translate missing Section titles without changing Section IDs"
     )
@@ -355,6 +366,21 @@ def run(argv: list[str] | None = None) -> int:
                 units,
                 segments,
                 args.output,
+            )
+        elif args.command == "agent-campaign":
+            campaign = plan_agent_campaign(
+                args.project,
+                args.max_segments,
+                args.checkpoint_source_chars,
+                args.checkpoint_max_units,
+                args.refresh,
+            )
+            LOG.info(
+                "Campaign %s: %d/%d segments complete across %d checkpoint(s)",
+                campaign["campaign_id"],
+                campaign["completed_segments"],
+                campaign["target_segments"],
+                campaign["checkpoint_count"],
             )
         elif args.command == "translate-titles":
             adapter = (

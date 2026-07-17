@@ -152,6 +152,15 @@ contextweaver export my-book --format all --content all --segment seg_...
 
 When `--max-units` is omitted, `agent-batch` uses the transparent adaptive policy stored in `state/batch_strategy.json`: target about 40,000 source characters, cap the package at 30 TranslationUnits (normally about 90 Segments), and stop at a Section boundary. This is the production default derived from real-book packages: 30 Segments was too fragmented, while a 150-Segment package expanded one recovery and review surface to about 65,000 source characters and 699 KB of serialized context. Use `--target-source-chars` to tune the adaptive budget, or explicit `--max-units` for calibration and deliberately higher-throughput runs. The ContextPacket remains bounded per TranslationUnit; package size changes orchestration throughput, not the context sent for an individual unit.
 
+For autonomous book-scale work, create one durable Campaign rather than treating a package as the total assignment:
+
+```bash
+contextweaver agent-campaign my-book
+contextweaver agent-batch my-book next-checkpoint.jsonl
+```
+
+`agent-campaign` records every targeted pending Segment in `state/agent_campaign.json` without expanding all ContextPackets into memory. Re-running it refreshes completed and in-progress counts; `--refresh` is required to replace its scope. An Agent should loop over adaptive `agent-batch`, strict `translation-import`, review, and validation until the Campaign is complete. Thus a Campaign can cover hundreds or thousands of Segments while each failure-recovery surface remains bounded.
+
 Section headings have a separate append-only revision chain so translated books do not retain English chapter titles or destabilize Section/Segment IDs:
 
 ```bash

@@ -296,6 +296,118 @@ def export_agent_batch(
     return len(rows), segment_count
 
 
+def plan_agent_campaign(
+    root: Path,
+    max_segments: int | None = None,
+    checkpoint_source_chars: int = DEFAULT_AGENT_BATCH_SOURCE_CHARS,
+    checkpoint_max_units: int = DEFAULT_AGENT_BATCH_MAX_UNITS,
+    refresh: bool = False,
+) -> dict[str, object]:
+    """Create or refresh a compact whole-run plan without expanding ContextPackets."""
+    if max_segments is not None and max_segments < 1:
+        raise ValueError("max_segments must be at least 1")
+    if checkpoint_source_chars < 1:
+        raise ValueError("checkpoint_source_chars must be at least 1")
+    if checkpoint_max_units < 1:
+        raise ValueError("checkpoint_max_units must be at least 1")
+    path = root / STATE / "agent_campaign.json"
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    if path.exists() and not refresh:
+        campaign = read_json(path)
+        for checkpoint in campaign.get("checkpoints", []):
+            ids = checkpoint["segment_ids"]
+            completed = sum(segment_id in active for segment_id in ids)
+            checkpoint["completed_segments"] = completed
+            checkpoint["status"] = (
+                "completed" if completed == len(ids) else "in_progress" if completed else "pending"
+            )
+        campaign["completed_segments"] = sum(
+            checkpoint["completed_segments"] for checkpoint in campaign.get("checkpoints", [])
+        )
+        campaign["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_json(path, campaign)
+        return campaign
+
+    units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
+    if not units:
+        raise RuntimeError("No translation units. Run segment first.")
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    segment_map = {segment.id: segment for segment in segments}
+    selected: list[tuple[TranslationUnit, list[Segment]]] = []
+    selected_segments = 0
+    for unit in units:
+        pending = [segment_map[item] for item in unit.segment_ids if item not in active]
+        if not pending:
+            continue
+        if max_segments is not None and selected and selected_segments + len(pending) > max_segments:
+            break
+        selected.append((unit, pending))
+        selected_segments += len(pending)
+        if max_segments is not None and selected_segments >= max_segments:
+            break
+    checkpoints: list[dict[str, object]] = []
+    current: list[tuple[TranslationUnit, list[Segment]]] = []
+    current_chars = 0
+
+    def flush() -> None:
+        nonlocal current, current_chars
+        if not current:
+            return
+        segment_ids = [segment.id for _, items in current for segment in items]
+        checkpoints.append(
+            {
+                "ordinal": len(checkpoints),
+                "section_id": current[0][0].section_id,
+                "unit_ids": [unit.id for unit, _ in current],
+                "segment_ids": segment_ids,
+                "unit_count": len(current),
+                "segment_count": len(segment_ids),
+                "source_chars": current_chars,
+                "completed_segments": 0,
+                "status": "pending",
+            }
+        )
+        current = []
+        current_chars = 0
+
+    for unit, pending in selected:
+        pending_chars = sum(len(segment.text) for segment in pending)
+        if current and (
+            unit.section_id != current[0][0].section_id
+            or len(current) >= checkpoint_max_units
+            or current_chars + pending_chars > checkpoint_source_chars
+        ):
+            flush()
+        current.append((unit, pending))
+        current_chars += pending_chars
+    flush()
+    now = datetime.now(timezone.utc).isoformat()
+    project = _project(root)
+    campaign: dict[str, object] = {
+        "schema_version": 1,
+        "campaign_id": stable_id(
+            "campaign",
+            project.id,
+            *(checkpoint["segment_ids"][0] for checkpoint in checkpoints),
+        ),
+        "project_id": project.id,
+        "created_at": now,
+        "updated_at": now,
+        "scope": "all-pending" if max_segments is None else "bounded-pending",
+        "target_segments": selected_segments,
+        "completed_segments": 0,
+        "checkpoint_policy": {
+            "target_source_chars": checkpoint_source_chars,
+            "max_units": checkpoint_max_units,
+            "stop_at_section_boundary": True,
+        },
+        "checkpoint_count": len(checkpoints),
+        "checkpoints": checkpoints,
+    }
+    write_json(path, campaign)
+    return campaign
+
+
 @lru_cache(maxsize=16)
 def _context_index(
     root_text: str, stamps: tuple[int, ...]

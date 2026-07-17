@@ -15,6 +15,7 @@ from contextweaver.pipeline import (
     import_section_title_draft,
     import_translation_draft,
     init_project,
+    plan_agent_campaign,
     project_status,
     segment_document,
     translate_project,
@@ -136,6 +137,29 @@ def test_agent_batch_explicit_limit_overrides_adaptive_section_stop(
     segment_document(project, unit_size=1)
     assert export_agent_batch(project, tmp_path / "explicit.jsonl", max_units=3) == (3, 3)
     assert not (project / "state" / "batch_strategy.json").exists()
+
+
+def test_agent_campaign_plans_all_pending_and_refreshes_progress(
+    project: Path,
+) -> None:
+    segment_document(project, unit_size=1)
+    campaign = plan_agent_campaign(project, checkpoint_source_chars=100, checkpoint_max_units=2)
+    assert campaign["scope"] == "all-pending"
+    assert campaign["target_segments"] == 3
+    assert campaign["checkpoint_count"] == 2
+    assert campaign["checkpoints"][0]["section_id"] != campaign["checkpoints"][1]["section_id"]
+    translate_project(project, MockTranslationAdapter(), max_units=1)
+    updated = plan_agent_campaign(project)
+    assert updated["campaign_id"] == campaign["campaign_id"]
+    assert updated["completed_segments"] == 1
+    assert updated["checkpoints"][0]["status"] == "in_progress"
+
+
+def test_agent_campaign_supports_explicit_bounded_scope(project: Path) -> None:
+    segment_document(project, unit_size=1)
+    campaign = plan_agent_campaign(project, max_segments=2)
+    assert campaign["scope"] == "bounded-pending"
+    assert campaign["target_segments"] == 2
 
 
 def test_optional_epub_exports_are_readable(project: Path) -> None:
