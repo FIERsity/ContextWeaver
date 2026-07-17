@@ -4,7 +4,7 @@ import json
 import pytest
 from ebooklib import epub
 
-from contextweaver.adapters import MockTranslationAdapter, TranslationAdapter
+from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -58,6 +58,12 @@ def test_context_contains_neighbors(project: Path) -> None:
     packet = build_context(project, units[1])
     assert packet.previous_text == "First paragraph."
     assert packet.next_text == "Last paragraph."
+
+
+def test_bibliography_passthrough_preserves_source_entry(project: Path) -> None:
+    _, segments, units = segment_document(project, unit_size=1)
+    packet = build_context(project, units[0])
+    assert BibliographyPassthroughAdapter().translate(packet) == [segments[0].raw]
 
 
 def test_resume_validate_and_export(project: Path) -> None:

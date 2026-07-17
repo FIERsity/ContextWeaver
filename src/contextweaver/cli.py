@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from .adapters import (
+    BibliographyPassthroughAdapter,
     HeuristicReviewAdapter,
     MockTranslationAdapter,
     OpenAIReviewAdapter,
@@ -70,7 +71,9 @@ def parser() -> argparse.ArgumentParser:
     seg.add_argument("--unit-size", type=int, default=3)
     trans = commands.add_parser("translate", help="Translate pending units")
     trans.add_argument("project", type=Path)
-    trans.add_argument("--adapter", choices=["mock", "openai"], default="mock")
+    trans.add_argument(
+        "--adapter", choices=["mock", "openai", "bibliography-passthrough"], default="mock"
+    )
     trans.add_argument("--model", default="gpt-5.6-sol")
     trans.add_argument("--requests-per-minute", type=float, default=60)
     trans.add_argument(
@@ -310,6 +313,8 @@ def run(argv: list[str] | None = None) -> int:
             adapter = (
                 MockTranslationAdapter()
                 if args.adapter == "mock"
+                else BibliographyPassthroughAdapter()
+                if args.adapter == "bibliography-passthrough"
                 else OpenAITranslationAdapter(
                     model=args.model, requests_per_minute=args.requests_per_minute
                 )

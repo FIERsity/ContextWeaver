@@ -210,6 +210,16 @@ class MockTranslationAdapter(TranslationAdapter):
         return [f"[MOCK] {segment.raw or segment.text}" for segment in packet.source_segments]
 
 
+class BibliographyPassthroughAdapter(TranslationAdapter):
+    """Preserve scholarly citation metadata when no safe localization exists."""
+
+    name = "bibliography-passthrough"
+    model = "source-citation-preservation-v1"
+
+    def translate(self, packet: ContextPacket) -> list[str]:
+        return [segment.raw or segment.text for segment in packet.source_segments]
+
+
 class OpenAITranslationAdapter(TranslationAdapter):
     """Optional Responses API adapter with bounded exponential retry."""
 
