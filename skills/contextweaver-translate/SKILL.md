@@ -37,19 +37,21 @@ Set a shell variable such as `CW=contextweaver` or `CW="uv run contextweaver"`. 
 
    When the user provides a licensed or locally available human translation, run `reference-import PROJECT FILE --language LANGUAGE --credit "TRANSLATOR (reference only)"`. Inspect chapter alignments and both import reports. For a Taiwan Traditional Chinese reference targeting Mainland readers, run `reference-simplify`; treat the result as a locale-adapted draft reference, never as a new source-faithful translation.
 
-7. Use `translate --adapter mock` for workflow verification. Use `--adapter openai` only when the user requests online translation and `OPENAI_API_KEY` is available. Never print or inspect the key. Set a conservative `--requests-per-minute` for long runs. For autonomous end-to-end operation after import, use `auto`; it safely resumes analysis, summaries, segmentation, knowledge extraction, pending translation, Agent review, validation, and export without requiring human approval.
+7. Use `translate --adapter mock` for workflow verification. Use `--adapter openai` only when the user requests online translation and `OPENAI_API_KEY` is available. Never print or inspect the key. Set a conservative `--requests-per-minute` for long runs. For autonomous end-to-end operation after import, use `auto`; it safely resumes analysis, summaries, segmentation, knowledge extraction, pending translation, convergent Agent review, validation, export, and audit without requiring human approval. Keep the default review limit unless a costly real run justifies an explicit `--max-review-rounds` value.
 
    When Codex itself produces translations without an online adapter, write strict JSONL rows containing only `segment_id` and `translated_text`, then run `translation-import PROJECT DRAFT --adapter codex-agent --model MODEL --reason REASON`. Keep drafts inside the ignored project directory. Never fabricate a model name.
 
 8. Run `review` after translation. The Critic/Reviser must compare the exact source and active TranslationRecord using the strategy and context, then append its decision to `state/reviews.jsonl`. A revision must be a complete changed translation and must append a linked TranslationRecord; never overwrite the reviewed input. Normal reruns skip already reviewed versions.
 
-9. Run `coherence-review --scope section` after Segment review, then `coherence-review --scope book` after all Sections are complete. These passes use bounded evidence dossiers, current Section summaries, open ambiguity records, and active-translation fingerprints; they may revise only included evidence Segments. Do not run book review on an incomplete project. `auto` performs both levels by default.
+9. Run `coherence-review --scope section` after Segment review, then `coherence-review --scope book` after all Sections are complete. These passes use bounded evidence dossiers, current Section summaries, open ambiguity records, and active-translation fingerprints; they may revise only included evidence Segments. Do not run book review on an incomplete project. After any revision, repeat Segment, Section, and book review until a complete round produces no revision. `auto` performs this convergence loop by default and fails instead of silently accepting endless churn.
 
 10. Run `validate` after every translation, review, or knowledge change. Use repeatable `--segment` or `--section` for an incomplete pilot; scoped issues are stored separately and do not mark the whole book complete. Treat exit code 1 as review work, not a command failure. Do not silently waive errors.
 
 11. Run `export` only after validation has no errors. Use `--format markdown|epub|all` and `--content translated|bilingual|all`; an autonomous request may choose both without pausing for confirmation. Use `--translator` for the actual translating Agent/model and `--reference-credit` for any consulted human edition. Never credit a locale converter as translator of a source-faithful edition. Report that unresolved source images become explicit text placeholders in generated EPUB until asset copying is implemented.
 
-12. Run `status` and summarize completed steps, counts, summary/ambiguity counts, Segment/Section/book review counts, open issues, and output paths.
+12. Run `audit` after final export. Require `ready=true` for a completed book. Never use `--allow-mock` as release evidence; it exists only to exercise the full workflow in tests.
+
+13. Run `status` and summarize completed steps, counts, summary/ambiguity counts, Segment/Section/book review counts, audit pass/fail state, open issues, and output paths.
 
 ## Resume and revise
 

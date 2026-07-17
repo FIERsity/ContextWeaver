@@ -71,9 +71,12 @@ def test_openai_analysis_adapter_uses_structured_output() -> None:
 def test_auto_cli_runs_agent_first_path_without_human_gate(tmp_path: Path) -> None:
     root = _project(tmp_path)
     (root / "state" / "units.jsonl").unlink()
-    assert run(["auto", str(root), "--format", "markdown", "--content", "translated"]) == 0
+    assert run(["auto", str(root)]) == 0
     assert (root / "state" / "translation_brief.json").exists()
     assert (root / "state" / "section_summaries.jsonl").exists()
     assert (root / "state" / "reviews.jsonl").exists()
     assert (root / "state" / "scope_reviews.jsonl").exists()
     assert (root / "output" / "translated.md").exists()
+    assert (root / "output" / "translated.epub").exists()
+    report = json.loads((root / "state" / "v1_audit.json").read_text(encoding="utf-8"))
+    assert report["ready"] is True

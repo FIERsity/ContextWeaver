@@ -70,29 +70,10 @@ def _review_scope(
     units: list[TranslationUnit],
     previous: list[ScopeReview],
 ) -> tuple[int, int, int]:
-    strategy_path = root / STATE / "translation_brief.json"
-    strategy = read_json(strategy_path) if strategy_path.exists() else {}
-    from .summaries import active_section_summaries
-
-    summaries = active_section_summaries(
-        read_jsonl(root / STATE / "section_summaries.jsonl", SectionSummary)
-    )
-    relevant_sections = {item.section_id for item in scoped}
-    section_context = {
-        section_id: summaries[section_id].summary
-        for section_id in relevant_sections if section_id in summaries
-    }
-    ambiguities = [
-        item.to_dict() for item in read_jsonl(
-            root / STATE / "ambiguities.jsonl", AmbiguityRecord
-        )
-        if item.section_id in relevant_sections and item.status == "open"
-    ]
-    review_context = {
-        "translation_strategy": strategy,
-        "section_summaries": section_context,
-        "open_ambiguities": ambiguities,
-    }
+    review_context = _review_context(root, scoped)
+    strategy = review_context["translation_strategy"]
+    section_context = review_context["section_summaries"]
+    ambiguities = review_context["open_ambiguities"]
     input_digest = _digest(scoped, active, review_context)
     if any(
         item.scope_type == scope_type and item.scope_id == scope_id
@@ -191,6 +172,41 @@ def _digest(
 
         value += "\x1e" + json.dumps(context, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def scope_fingerprint(root: Path, segments: list[Segment]) -> str | None:
+    """Return the current review fingerprint, or ``None`` when translation is incomplete."""
+    records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
+    active = active_translations(records)
+    if any(item.id not in active for item in segments):
+        return None
+    return _digest(segments, active, _review_context(root, segments))
+
+
+def _review_context(root: Path, scoped: list[Segment]) -> dict[str, Any]:
+    strategy_path = root / STATE / "translation_brief.json"
+    strategy = read_json(strategy_path) if strategy_path.exists() else {}
+    from .summaries import active_section_summaries
+
+    summaries = active_section_summaries(
+        read_jsonl(root / STATE / "section_summaries.jsonl", SectionSummary)
+    )
+    relevant_sections = {item.section_id for item in scoped}
+    section_context = {
+        section_id: summaries[section_id].summary
+        for section_id in relevant_sections if section_id in summaries
+    }
+    ambiguities = [
+        item.to_dict() for item in read_jsonl(
+            root / STATE / "ambiguities.jsonl", AmbiguityRecord
+        )
+        if item.section_id in relevant_sections and item.status == "open"
+    ]
+    return {
+        "translation_strategy": strategy,
+        "section_summaries": section_context,
+        "open_ambiguities": ambiguities,
+    }
 
 
 def _dossier(

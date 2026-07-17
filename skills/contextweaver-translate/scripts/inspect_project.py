@@ -61,6 +61,8 @@ def main() -> int:
     )
     brief_path = root / "state" / "translation_brief.json"
     brief = json.loads(brief_path.read_text(encoding="utf-8")) if brief_path.exists() else None
+    audit_path = root / "state" / "v1_audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path.exists() else None
     result = {
         "is_project": True,
         "path": str(root),
@@ -95,6 +97,12 @@ def main() -> int:
             "concept_rule_count": len(brief.get("concept_rules", [])),
             "generated_by": brief.get("generated_by", {}),
             "human_review_required": brief.get("human_review_required", False),
+        },
+        "v1_audit": None if audit is None else {
+            "ready": audit.get("ready", False),
+            "passed": audit.get("passed", 0),
+            "failed": audit.get("failed", 0),
+            "generated_at": audit.get("generated_at"),
         },
         "outputs": outputs,
     }

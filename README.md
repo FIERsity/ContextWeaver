@@ -16,6 +16,8 @@ Version 0.6 adds bounded chapter-level and whole-book coherence review with scop
 
 Version 0.7 adds resumable Section summaries and conservative ambiguity records. Summaries carry source/strategy fingerprints and revision links, enter every ContextPacket, and provide chapter context to Section/book review without making human resolution a prerequisite.
 
+Version 0.8 adds a machine-readable v1 readiness audit and convergent autonomous review. `auto` repeats Segment, Section, and book review until a round produces no new revisions, then validates, exports, and records whether every v1 completion gate is actually satisfied.
+
 ## Quick start
 
 Python 3.11 or newer is required.
@@ -40,6 +42,7 @@ contextweaver review my-book --adapter heuristic
 contextweaver coherence-review my-book --adapter heuristic --scope all
 contextweaver validate my-book
 contextweaver export my-book
+contextweaver audit my-book
 contextweaver status my-book
 ```
 
@@ -52,7 +55,7 @@ contextweaver auto my-book --adapter openai --model gpt-5.6-sol \
   --requests-per-minute 30 --format all --content all
 ```
 
-`auto` writes `state/translation_brief.json` and a readable mirror at `notes/translation_brief.md`. The strategy describes genre, disciplinary register, source and target style, audience, translation principles, and evidence-backed concept rules. It is injected into every ContextPacket. After translation, the default Critic/Reviser pass checks semantic fidelity, concept sense, terminology, rhetoric, formatting, and natural Chinese. Human editing is optional; normal reruns preserve the existing brief, while `--refresh-analysis` explicitly regenerates it. Use `--skip-review` only when intentionally trading quality for cost or a workflow test.
+`auto` writes `state/translation_brief.json` and a readable mirror at `notes/translation_brief.md`. The strategy describes genre, disciplinary register, source and target style, audience, translation principles, and evidence-backed concept rules. It is injected into every ContextPacket. After translation, the default Critic/Reviser pass checks semantic fidelity, concept sense, terminology, rhetoric, formatting, and natural Chinese. Segment, Section, and book review repeat until a full round produces no new revision, with `--max-review-rounds` preventing unbounded churn. Human editing is optional; normal reruns preserve the existing brief, while `--refresh-analysis` explicitly regenerates it. Use `--skip-review` only when intentionally trading quality for cost or a workflow test.
 
 The review stage is independently resumable and scope-selectable:
 
@@ -80,6 +83,14 @@ contextweaver summarize my-book --section sec_... --refresh
 ```
 
 `state/section_summaries.jsonl` is append-only and links revisions through `supersedes`. Its digest includes the source Segment identities and current translation strategy, so unchanged work resumes immediately while a strategy change makes the summary eligible for regeneration. Genuine unresolved references, terms, entities, source defects, or rhetoric are stored in `state/ambiguities.jsonl`. They inform later review but do not impose a mandatory human gate.
+
+The final gate is explicit and independently runnable:
+
+```bash
+contextweaver audit my-book
+```
+
+It writes `state/v1_audit.json` and `notes/v1_audit.md`, checking source retention, structural identity, strategy and summary coverage, revision integrity, current three-level review fingerprints, deterministic validation, all four final artifacts, EPUB readback, and provenance. `--allow-mock` exists only for workflow tests; it must not be used as release evidence.
 
 ## Use with Codex
 
@@ -148,12 +159,14 @@ my-book/
 │   ├── scope_reviews.jsonl
 │   ├── section_summaries.jsonl
 │   ├── ambiguities.jsonl
+│   ├── v1_audit.json
 │   ├── issues.jsonl
 │   ├── glossary.csv
 │   └── entities.jsonl
 ├── notes/
 │   ├── translation_brief.md
-│   └── section_summaries.md
+│   ├── section_summaries.md
+│   └── v1_audit.md
 └── output/
     ├── translated.md
     └── bilingual.md
@@ -196,6 +209,7 @@ src/contextweaver/
 ├── coherence_adapters.py
 ├── summaries.py    # resumable chapter context and ambiguity records
 ├── summary_adapters.py
+├── audit.py        # evidence-backed v1 completion gate
 ├── validation.py   # deterministic quality checks
 └── cli.py          # command presentation and error handling
 skills/contextweaver-translate/
@@ -214,7 +228,7 @@ See [docs/architecture.md](docs/architecture.md) for invariants and extension po
 - Add autonomous ambiguity resolution and richer style-profile checks.
 - Add provider-neutral prompt templates and more opt-in adapters.
 - Add revision comparison/approval commands and richer export formats.
-- Add book-level semantic consistency review, GUI, and API surfaces.
+- Add GUI and API surfaces after the v1 acceptance gate passes.
 
 ## Status
 

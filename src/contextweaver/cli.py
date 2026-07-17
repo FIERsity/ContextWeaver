@@ -14,6 +14,7 @@ from .adapters import (
     OpenAIReviewAdapter,
     OpenAITranslationAdapter,
 )
+from .audit import audit_project
 from .coherence import review_book, review_sections
 from .coherence_adapters import (
     HeuristicCoherenceReviewAdapter,
@@ -129,6 +130,12 @@ def parser() -> argparse.ArgumentParser:
     summarize.add_argument("--requests-per-minute", type=float, default=30)
     summarize.add_argument("--section", action="append", default=[])
     summarize.add_argument("--refresh", action="store_true")
+    audit = commands.add_parser("audit", help="Write an evidence-backed v1 readiness report")
+    audit.add_argument("project", type=Path)
+    audit.add_argument(
+        "--allow-mock", action="store_true",
+        help="Allow mock translations for workflow tests; never use for release readiness",
+    )
     auto = commands.add_parser("auto", help="Run the resumable Agent-first path from analysis through export")
     auto.add_argument("project", type=Path)
     auto.add_argument("--adapter", choices=["mock", "openai"], default="mock")
@@ -140,6 +147,10 @@ def parser() -> argparse.ArgumentParser:
     auto.add_argument("--translator")
     auto.add_argument("--reference-credit")
     auto.add_argument("--skip-review", action="store_true", help="Skip the default Agent critic/reviser pass")
+    auto.add_argument(
+        "--max-review-rounds", type=int, default=3,
+        help="Maximum Segment/Section/book convergence rounds",
+    )
     return root
 
 
@@ -253,7 +264,13 @@ def run(argv: list[str] | None = None) -> int:
                 "Generated %d Section summaries and %d ambiguity record(s); skipped %d",
                 generated, ambiguities, skipped,
             )
+        elif args.command == "audit":
+            report = audit_project(args.project, allow_mock=args.allow_mock)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report["ready"] else 1
         elif args.command == "auto":
+            if args.max_review_rounds < 1:
+                raise ValueError("max-review-rounds must be at least 1")
             units_path = args.project / "state" / "units.jsonl"
             if not units_path.exists() or not units_path.read_text(encoding="utf-8").strip():
                 sections, segments, units = segment_document(args.project)
@@ -285,29 +302,36 @@ def run(argv: list[str] | None = None) -> int:
                 reviewer = HeuristicReviewAdapter() if args.adapter == "mock" else OpenAIReviewAdapter(
                     model=args.model, requests_per_minute=args.requests_per_minute
                 )
-                reviewed, revised, review_skipped = review_project(args.project, reviewer)
-                LOG.info(
-                    "Agent review checked %d translations; revised %d; skipped %d reviewed versions",
-                    reviewed, revised, review_skipped,
-                )
                 coherence_reviewer = (
                     HeuristicCoherenceReviewAdapter() if args.adapter == "mock"
                     else OpenAICoherenceReviewAdapter(
                         model=args.model, requests_per_minute=args.requests_per_minute
                     )
                 )
-                section_reviewed, section_revised, section_skipped = review_sections(
-                    args.project, coherence_reviewer
-                )
-                book_reviewed, book_revised, book_skipped = review_book(
-                    args.project, coherence_reviewer
-                )
-                LOG.info(
-                    "Coherence review checked %d section/book scope(s); revised %d translation(s); skipped %d",
-                    section_reviewed + book_reviewed,
-                    section_revised + book_revised,
-                    section_skipped + book_skipped,
-                )
+                converged = False
+                for round_number in range(1, args.max_review_rounds + 1):
+                    reviewed, revised, review_skipped = review_project(args.project, reviewer)
+                    section_reviewed, section_revised, section_skipped = review_sections(
+                        args.project, coherence_reviewer
+                    )
+                    book_reviewed, book_revised, book_skipped = review_book(
+                        args.project, coherence_reviewer
+                    )
+                    round_revisions = revised + section_revised + book_revised
+                    LOG.info(
+                        "Review round %d checked %d Segment and %d scope version(s); "
+                        "revised %d; skipped %d",
+                        round_number, reviewed, section_reviewed + book_reviewed,
+                        round_revisions,
+                        review_skipped + section_skipped + book_skipped,
+                    )
+                    if round_revisions == 0:
+                        converged = True
+                        break
+                if not converged:
+                    raise RuntimeError(
+                        f"Agent review did not converge after {args.max_review_rounds} round(s)"
+                    )
             issues = validate_project(args.project)
             errors = [issue for issue in issues if issue.severity == "error"]
             if errors:
@@ -319,6 +343,16 @@ def run(argv: list[str] | None = None) -> int:
                 args.project, formats, contents, args.translator, args.reference_credit
             )
             LOG.info("Auto workflow wrote %d artifact(s): %s", len(paths), ", ".join(str(path) for path in paths))
+            audit = audit_project(args.project, allow_mock=args.adapter == "mock")
+            LOG.info(
+                "v1 audit: ready=%s passed=%d failed=%d",
+                audit["ready"], audit["passed"], audit["failed"],
+            )
+            if (
+                args.format == "all" and args.content == "all"
+                and not args.skip_review and not audit["ready"]
+            ):
+                return 1
         return 0
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
         LOG.error("%s", exc)

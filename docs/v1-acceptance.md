@@ -33,3 +33,5 @@ ContextWeaver reaches v1.0 when it can autonomously turn a supported long-form s
 - A heavyweight multi-Agent framework or opaque database.
 
 After these gates pass, new providers, GUI work, richer format fidelity, and domain-specific evaluators belong to later releases rather than delaying v1.0.
+
+Run `contextweaver audit PROJECT` to write the machine-readable gate at `state/v1_audit.json` and its readable evidence report at `notes/v1_audit.md`. A release candidate is ready only when this command reports `ready=true` without `--allow-mock`.

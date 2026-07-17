@@ -17,8 +17,10 @@
 - `state/translation_brief.json`: automatic work profile, target style, principles, concept rules, evidence, confidence, and generator attribution. Human approval is optional.
 - `state/issues.jsonl`: current validation findings.
 - `state/export_metadata.json`: source authority, translator/Agent attribution, human-reference credit, and fidelity policy.
+- `state/v1_audit.json`: machine-readable completion gate with per-check evidence; `ready=true` without mock allowance is required for release.
 - `notes/translation_brief.md`: editable human-readable mirror of the automatic strategy.
 - `notes/section_summaries.md`: readable mirror of the latest automatic Section summaries.
+- `notes/v1_audit.md`: readable mirror of the latest completion audit.
 - `state/import_report.json`: source structure counts and known conversion losses.
 - `state/reference/`: local human translation, chapter alignment, import report, and optional locale adaptations.
 - `output/translated.md`: target-only export.

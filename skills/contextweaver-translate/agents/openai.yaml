@@ -1,4 +1,4 @@
 interface:
   display_name: "ContextWeaver Translation"
-  short_description: "Run autonomous, resumable book translation"
-  default_prompt: "Use $contextweaver-translate to analyze, summarize, translate, review at segment, chapter, and book level, and export this long-form work autonomously."
+  short_description: "Run autonomous, auditable book translation"
+  default_prompt: "Use $contextweaver-translate to analyze, summarize, translate, converge segment, chapter, and book review, audit, and export this long-form work autonomously."

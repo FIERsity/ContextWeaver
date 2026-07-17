@@ -21,7 +21,7 @@ Every ContextPacket carries the current brief. Concept rules are context-sensiti
 
 Summarizers may emit conservative ambiguity records for unresolved references, terms, entities, source defects, or rhetoric. `ambiguities.jsonl` requires evidence Segment IDs and confidence. Open ambiguities inform coherence review but do not block autonomous translation or require human approval. Duplicate ambiguity identities are not appended on resume.
 
-`auto` is the non-interactive main path. It segments when needed, creates or resumes analysis, extracts knowledge, translates pending Segments, runs the Agent Critic/Reviser, validates the complete project, and exports only when blocking errors are absent. Low-confidence strategy decisions do not require approval. Human review remains an optional correction and revision interface.
+`auto` is the non-interactive main path. It segments when needed, creates or resumes analysis and summaries, extracts knowledge, translates pending Segments, and runs Segment, Section, and book review as a convergence loop. A round with revisions invalidates affected higher-level fingerprints, so another round is required; the run succeeds only after a full round makes no revision, or fails at the configured maximum. It then validates, exports only when blocking errors are absent, and writes the v1 readiness audit. Low-confidence strategy decisions do not require approval. Human review remains an optional correction and revision interface.
 
 ## Agent Critic and Reviser
 
@@ -30,6 +30,10 @@ Summarizers may emit conservative ambiguity records for unresolved references, t
 `state/reviews.jsonl` is append-only. Each TranslationReview stores the exact input TranslationRecord ID, accepted or revised output ID, adapter/model, verdict, categories, rationale, and confidence. A changed result is appended to `translations.jsonl` with prompt version `review-v1-agent-critic-reviser` and a `supersedes` link. Empty or unchanged revisions are hard errors. Both input and output IDs are marked reviewed, so reruns skip the same version while a later selective translation naturally becomes eligible for a new review.
 
 Chapter and book coherence use `scope_reviews.jsonl`. Each ScopeReview fingerprints the ordered active TranslationRecord IDs before and after review, records the bounded evidence Segment IDs, and links any revised TranslationRecord IDs. A Section dossier contains all Segments when small; otherwise it combines evenly stratified passages with high-risk concept hits under a character budget. A book dossier combines first/middle/last passages from every Section with a bounded concept concordance. Reviewers may revise only evidence Segments, preventing unsupported edits to omitted text. Any later translation change alters the scope fingerprint and makes that scope eligible for review again.
+
+## Evidence-backed completion
+
+`audit` converts the v1 acceptance target into durable evidence at `state/v1_audit.json` with a readable mirror at `notes/v1_audit.md`. It checks retained inputs, import reporting, stable structural coverage, strategy and summaries, ambiguity evidence, complete non-mock active translations, revision chains, current Segment/Section/book review coverage, deterministic validation, translated and bilingual Markdown/EPUB artifacts, EPUB readback, and provenance. Partial projects fail with counts rather than being mistaken for complete. `--allow-mock` is restricted to workflow verification and is not release evidence.
 
 ## Stable identity
 
