@@ -172,8 +172,21 @@ def _reader_typography(value: str) -> str:
     # must never be mistaken for quotation punctuation.
     parts = re.split(r"(`[^`\n]*`)", value)
     for index in range(0, len(parts), 2):
-        parts[index] = _normalize_quote_marks(parts[index])
+        parts[index] = _normalize_quote_marks(_restore_latin_apostrophes(parts[index]))
     return "".join(parts)
+
+
+def _restore_latin_apostrophes(value: str) -> str:
+    """Repair a common EPUB typography defect without touching Chinese quotes.
+
+    Some EPUB producers serialize a Latin apostrophe as a right double quote,
+    yielding reader-facing defects such as ``O”Reilly`` and ``Economists”
+    Hour``.  The rule is deliberately confined to Latin-word contexts, so a
+    Chinese closing quote (``“中文”``) remains a closing quote.
+    """
+    latin = r"A-Za-zÀ-ÖØ-öø-ÿ"
+    value = re.sub(rf"(?<=[{latin}])”(?=[{latin}])", "'", value)
+    return re.sub(rf"(?<=[{latin}])”(?=\s+[{latin}])", "'", value)
 
 
 def _normalize_quote_marks(value: str) -> str:
@@ -263,6 +276,7 @@ def _epub_provenance(provenance: dict[str, str]) -> str:
 _CSS = """
 body { font-family: serif; line-height: 1.65; margin: 5%; }
 h1 { line-height: 1.25; margin: 1.5em 0 1em; }
+h2 { font-size: 1.18em; font-weight: 700; line-height: 1.35; margin: 2em 0 0.75em; }
 .source { color: #555; border-left: 0.2em solid #bbb; padding-left: 1em; }
 .target { margin-bottom: 1.5em; }
 pre, code { font-family: monospace; white-space: pre-wrap; }

@@ -200,6 +200,8 @@ def test_reader_export_uses_chinese_outer_quotes_and_css_heading_heuristic() -> 
     assert _reader_typography("她说：“所谓‘进步’，并不简单。”") == "她说：“所谓‘进步’，并不简单。”"
     assert _reader_typography("所谓「好」的技术") == "所谓“好”的技术"
     assert _reader_typography("她说：「所谓『进步』，并不简单。」") == "她说：“所谓‘进步’，并不简单。”"
+    assert _reader_typography("O”Reilly and Economists” Hour") == "O'Reilly and Economists' Hour"
+    assert _reader_typography("她说：“中文”之后仍是中文。") == "她说：“中文”之后仍是中文。"
     section = Section("section", "document", "Chapter", 1, 0)
     segment = Segment(
         "segment", "document", "section", 0, "Radio Days", raw="Radio Days"
