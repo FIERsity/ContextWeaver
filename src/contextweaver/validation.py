@@ -85,6 +85,12 @@ def quality_issues(
                         suffix = str(decade % 100)
                         if source_anchor not in target_set and suffix in target_set:
                             target_set.add(source_anchor)
+                # A stated decade (for example ``2010年代``) carries evidence
+                # for its century even when Chinese prose does not repeat it.
+                for target_anchor in target_numbers:
+                    if target_anchor.startswith("decade:"):
+                        decade = int(target_anchor.removeprefix("decade:"))
+                        target_set.add(f"century:{decade // 100 + 1}")
                 missing = Counter(source_set - target_set)
                 extra = Counter(target_set - source_set)
                 # Zero-padded two-digit labels such as ``Charter 08`` are
@@ -181,7 +187,7 @@ def _issue(kind: str, message: str, segment_id: str, severity: str) -> ReviewIss
 
 def _numbers(text: str) -> list[str]:
     values = re.findall(
-        r"(?<![A-Za-z0-9_])(?:[$€£¥]\s*)?\d+(?:,\d{3})*(?:\.\d+)?%?(?![A-Za-z0-9_])",
+        r"(?<![A-Za-z0-9_])(?:[$€£¥]\s*)?(?:\d+\.\d+(?=[A-Za-z])|\d+(?:,\d{3})*(?:\.\d+)?%?(?![A-Za-z0-9_]))",
         text,
     )
     return sorted(re.sub(r"[^\d.]", "", value) for value in values)
@@ -244,6 +250,18 @@ def _numeric_anchors(text: str) -> list[str]:
 
         working = re.sub(pattern, substitution, working, flags=re.IGNORECASE)
 
+    # Bibliographies commonly abbreviate parliamentary column ranges, e.g.
+    # ``cc604-18``.  Expand the omitted prefix so it compares with the
+    # natural target form ``第604—618栏``.
+    abbreviated_columns = re.compile(r"\bcc(\d+)[‒–—-](\d{1,2})\b", re.IGNORECASE)
+    match = abbreviated_columns.search(working)
+    while match:
+        start = match.group(1)
+        end = start[: len(start) - len(match.group(2))] + match.group(2)
+        anchors.extend([start, end])
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = abbreviated_columns.search(working)
+
     chapter_numbers = {
         "一": 1,
         "二": 2,
@@ -265,6 +283,15 @@ def _numeric_anchors(text: str) -> list[str]:
         anchors.extend([f"chapter:{int(match.group(1))}", f"chapter:{int(match.group(2))}"])
         working = working[: match.start()] + " " + working[match.end() :]
         match = chapter_range.search(working)
+    english_chapter_list = re.compile(
+        r"\bchapters?\s+(\d+)\s*,\s*(\d+)\s*(?:,\s*and\s+|,\s*|and\s+)(\d+)\b",
+        re.IGNORECASE,
+    )
+    match = english_chapter_list.search(working)
+    while match:
+        anchors.extend(f"chapter:{int(value)}" for value in match.groups())
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = english_chapter_list.search(working)
     chinese_chapter_range = re.compile(
         rf"第\s*({chapter_word}|\d+)\s*章\s*(?:至|到|和|与|—|–|-)\s*第?\s*({chapter_word}|\d+)\s*章"
     )
@@ -278,6 +305,15 @@ def _numeric_anchors(text: str) -> list[str]:
         )
         working = working[: match.start()] + " " + working[match.end() :]
         match = chinese_chapter_range.search(working)
+    chinese_chapter_list = re.compile(r"第\s*((?:\d+|[一二三四五六七八九十]+)(?:\s*、\s*(?:\d+|[一二三四五六七八九十]+))+?)\s*章")
+    match = chinese_chapter_list.search(working)
+    while match:
+        anchors.extend(
+            f"chapter:{_chapter_number(value, chapter_numbers)}"
+            for value in re.findall(r"\d+|[一二三四五六七八九十]+", match.group(1))
+        )
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = chinese_chapter_list.search(working)
     replace(r"\bchapters?\s+(\d+)\b", lambda match: int(match.group(1)), "chapter")
     replace(
         rf"第\s*({chapter_word}|\d+)\s*章",
@@ -351,6 +387,12 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: int(match.group(1)),
         "century",
     )
+    chinese_century_list = re.compile(r"(?<!\d)(\d{1,2})\s*、\s*(\d{1,2})\s*世纪")
+    match = chinese_century_list.search(working)
+    while match:
+        anchors.extend(f"century:{int(value)}" for value in match.groups())
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = chinese_century_list.search(working)
     chinese_centuries = {
         "一": 1,
         "二": 2,
@@ -620,6 +662,10 @@ def _numeric_anchors(text: str) -> list[str]:
         "November",
         "December",
     )
+    # In bibliography prose, ``May (1973)`` is commonly an author's surname,
+    # not a calendar month.  Remove that unambiguous citation form before
+    # looking for contextual English month names.
+    working = re.sub(r"\bMay\s*\(\d{4}\)", " ", working)
     for month, name in enumerate(full_months, 1):
         anchor = f"month:{month}"
         contextual_month = rf"\b(?:in|on|by|during|until|from|since|through|late|early)\s+{name}\b"

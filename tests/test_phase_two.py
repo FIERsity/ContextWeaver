@@ -282,6 +282,9 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("thirty-five years") == _numeric_anchors("三十五年")
     assert _numeric_anchors("during the 19th century") == _numeric_anchors("19世纪")
     assert _numeric_anchors("during the eighteenth century") == _numeric_anchors("十八世纪")
+    assert _numeric_anchors("第6、7、8章") == ["chapter:6", "chapter:7", "chapter:8"]
+    assert _numeric_anchors("Chapter 3, 73") == ["73", "chapter:3"]
+    assert "month:5" not in _numeric_anchors("May (1973)")
     assert _numeric_anchors("between one and five shares") == _numeric_anchors("一至五股")
     assert _numeric_anchors("from twenty-one to thirty-seven years") == _numeric_anchors("二十一至三十七岁")
     assert _numeric_anchors("one billion francs") == _numeric_anchors("十亿法郎")
