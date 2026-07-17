@@ -6,6 +6,7 @@ import html
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class ImportedText:
     markdown: str
     title: str
     source_format: str
+    report: dict[str, Any] | None = None
 
 
 def read_source(path: Path) -> ImportedText:
@@ -82,15 +84,39 @@ def _read_epub(path: Path) -> ImportedText:
     title_meta = book.get_metadata("DC", "title")
     title = title_meta[0][0] if title_meta else path.stem
     chunks: list[str] = []
+    report: dict[str, Any] = {
+        "source_format": "epub", "spine_documents": 0, "paragraphs": 0,
+        "headings": 0, "images": 0, "links": 0, "footnote_links": 0,
+        "warnings": [],
+    }
     spine_items = [book.get_item_with_id(item_id) for item_id, _ in book.spine]
     documents = [item for item in spine_items if item and item.get_type() == ebooklib.ITEM_DOCUMENT]
     if not documents:
         documents = list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
     for item in documents:
+        report["spine_documents"] += 1
         soup = BeautifulSoup(item.get_content(), "html.parser")
-        for node in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "li"]):
+        report["paragraphs"] += len(soup.find_all("p"))
+        report["headings"] += len(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
+        report["images"] += len(soup.find_all("img"))
+        report["links"] += len(soup.find_all("a"))
+        report["footnote_links"] += len(soup.select('a[epub\\:type~="noteref"], a[role="doc-noteref"], a.footnoteup'))
+        chapter_number = ""
+        for node in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "li", "img"]):
             text = " ".join(node.get_text(" ", strip=True).split())
+            classes = set(node.get("class") or [])
+            if node.name == "img":
+                alt = node.get("alt", "").strip()
+                chunks.append(f"![{alt}]({node.get('src', '')})")
+                continue
             if not text:
+                continue
+            if "cn" in classes:
+                chapter_number = text
+                continue
+            if "ct" in classes:
+                chunks.append(f"# {' '.join(part for part in (chapter_number, text) if part)}")
+                chapter_number = ""
                 continue
             if node.name.startswith("h"):
                 chunks.append(f"{'#' * int(node.name[1])} {text}")
@@ -99,5 +125,35 @@ def _read_epub(path: Path) -> ImportedText:
             elif node.name == "li":
                 chunks.append(f"- {text}")
             else:
-                chunks.append(html.unescape(text))
-    return ImportedText("\n\n".join(chunks) + "\n", title, "epub")
+                chunks.append(_html_inline_to_markdown(node))
+    if report["images"]:
+        report["warnings"].append("Images are preserved as Markdown references but binary assets are not copied yet")
+    if report["links"]:
+        report["warnings"].append("Links are preserved where they occur inside selected text blocks")
+    if report["footnote_links"]:
+        report["warnings"].append("EPUB footnote backlinks require manual fidelity review")
+    return ImportedText("\n\n".join(chunks) + "\n", title, "epub", report)
+
+
+def _html_inline_to_markdown(node: Any) -> str:
+    """Render a small, auditable inline HTML subset as Markdown."""
+    from bs4 import NavigableString, Tag
+
+    def render(value: Any) -> str:
+        if isinstance(value, NavigableString):
+            return str(value)
+        if not isinstance(value, Tag):
+            return ""
+        content = "".join(render(child) for child in value.children)
+        if value.name in {"em", "i"}:
+            return f"*{content}*"
+        if value.name in {"strong", "b"}:
+            return f"**{content}**"
+        if value.name == "a":
+            href = value.get("href", "")
+            return f"[{content}]({href})" if href else content
+        if value.name == "br":
+            return "  \n"
+        return content
+
+    return html.unescape(" ".join(render(node).split()))

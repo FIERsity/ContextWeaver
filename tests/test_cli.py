@@ -14,4 +14,5 @@ def test_cli_end_to_end(tmp_path: Path) -> None:
     assert run(["validate", str(project)]) == 0
     assert run(["export", str(project)]) == 0
     assert (project / "output" / "translated.md").exists()
-
+    assert run(["export", str(project), "--format", "epub", "--content", "translated"]) == 0
+    assert (project / "output" / "translated.epub").exists()

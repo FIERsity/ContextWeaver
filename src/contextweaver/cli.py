@@ -8,11 +8,27 @@ import logging
 import sys
 from pathlib import Path
 
-from .adapters import MockTranslationAdapter, OpenAITranslationAdapter
+from .adapters import (
+    HeuristicReviewAdapter,
+    MockTranslationAdapter,
+    OpenAIReviewAdapter,
+    OpenAITranslationAdapter,
+)
+from .coherence import review_book, review_sections
+from .coherence_adapters import (
+    HeuristicCoherenceReviewAdapter,
+    OpenAICoherenceReviewAdapter,
+)
 from .knowledge import propose_knowledge
+from .reference import import_reference, simplify_reference_outputs
+from .review import review_project
+from .strategy import HeuristicBookAnalysisAdapter, OpenAIBookAnalysisAdapter, analyze_project
+from .summaries import summarize_project
+from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
-    export_project,
+    export_selected,
     import_document,
+    import_translation_draft,
     init_project,
     migrate_project,
     project_status,
@@ -52,8 +68,16 @@ def parser() -> argparse.ArgumentParser:
     trans.add_argument("--reason", default="manual-selection", help="Revision reason stored in each new record")
     val = commands.add_parser("validate", help="Validate one-to-one source/translation alignment")
     val.add_argument("project", type=Path)
-    exp = commands.add_parser("export", help="Export translated and bilingual Markdown")
+    val.add_argument("--section", action="append", default=[], help="Validate only selected section IDs")
+    val.add_argument("--segment", action="append", default=[], help="Validate only selected segment IDs")
+    exp = commands.add_parser("export", help="Export selected Markdown and/or EPUB artifacts")
     exp.add_argument("project", type=Path)
+    exp.add_argument("--format", choices=["markdown", "epub", "all"], default="markdown")
+    exp.add_argument("--content", choices=["translated", "bilingual", "all"], default="all")
+    exp.add_argument("--translator", help="Translator/agent credit embedded in output metadata")
+    exp.add_argument("--reference-credit", help="Human translation consulted as reference")
+    exp.add_argument("--section", action="append", default=[], help="Export only selected section IDs")
+    exp.add_argument("--segment", action="append", default=[], help="Export only selected segment IDs")
     status = commands.add_parser("status", help="Show pipeline progress")
     status.add_argument("project", type=Path)
     extract = commands.add_parser("extract-knowledge", help="Create editable glossary/entity proposals with evidence")
@@ -61,6 +85,61 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--minimum-occurrences", type=int, default=2)
     migrate = commands.add_parser("migrate", help="Migrate persisted project data to the latest schema")
     migrate.add_argument("project", type=Path)
+    reference = commands.add_parser("reference-import", help="Import and chapter-align a human translation")
+    reference.add_argument("project", type=Path)
+    reference.add_argument("source", type=Path)
+    reference.add_argument("--language", required=True)
+    reference.add_argument("--credit", default="", help="Translator and edition used as reference")
+    simplify = commands.add_parser("reference-simplify", help="Create a review draft in Mainland Simplified Chinese")
+    simplify.add_argument("project", type=Path)
+    simplify.add_argument("--format", choices=["markdown", "epub", "all"], default="markdown")
+    draft = commands.add_parser("translation-import", help="Import Agent-produced segment translations from JSONL")
+    draft.add_argument("project", type=Path)
+    draft.add_argument("draft", type=Path)
+    draft.add_argument("--adapter", default="codex-agent")
+    draft.add_argument("--model", required=True)
+    draft.add_argument("--reason", required=True)
+    analyze = commands.add_parser("analyze", help="Automatically profile the work and create a translation strategy")
+    analyze.add_argument("project", type=Path)
+    analyze.add_argument("--adapter", choices=["heuristic", "openai"], default="heuristic")
+    analyze.add_argument("--model", default="gpt-5.6-sol")
+    analyze.add_argument("--refresh", action="store_true", help="Replace the generated strategy; human edits may be lost")
+    review = commands.add_parser("review", help="Critique active translations and append needed revisions")
+    review.add_argument("project", type=Path)
+    review.add_argument("--adapter", choices=["heuristic", "openai"], default="heuristic")
+    review.add_argument("--model", default="gpt-5.6-sol")
+    review.add_argument("--requests-per-minute", type=float, default=30)
+    review.add_argument("--segment", action="append", default=[])
+    review.add_argument("--section", action="append", default=[])
+    coherence = commands.add_parser(
+        "coherence-review", help="Review chapter-level and whole-book consistency"
+    )
+    coherence.add_argument("project", type=Path)
+    coherence.add_argument("--scope", choices=["section", "book", "all"], default="all")
+    coherence.add_argument("--adapter", choices=["heuristic", "openai"], default="heuristic")
+    coherence.add_argument("--model", default="gpt-5.6-sol")
+    coherence.add_argument("--requests-per-minute", type=float, default=30)
+    coherence.add_argument("--section", action="append", default=[])
+    summarize = commands.add_parser(
+        "summarize", help="Generate resumable Section summaries and ambiguity records"
+    )
+    summarize.add_argument("project", type=Path)
+    summarize.add_argument("--adapter", choices=["heuristic", "openai"], default="heuristic")
+    summarize.add_argument("--model", default="gpt-5.6-sol")
+    summarize.add_argument("--requests-per-minute", type=float, default=30)
+    summarize.add_argument("--section", action="append", default=[])
+    summarize.add_argument("--refresh", action="store_true")
+    auto = commands.add_parser("auto", help="Run the resumable Agent-first path from analysis through export")
+    auto.add_argument("project", type=Path)
+    auto.add_argument("--adapter", choices=["mock", "openai"], default="mock")
+    auto.add_argument("--model", default="gpt-5.6-sol")
+    auto.add_argument("--requests-per-minute", type=float, default=30)
+    auto.add_argument("--format", choices=["markdown", "epub", "all"], default="all")
+    auto.add_argument("--content", choices=["translated", "bilingual", "all"], default="all")
+    auto.add_argument("--refresh-analysis", action="store_true")
+    auto.add_argument("--translator")
+    auto.add_argument("--reference-credit")
+    auto.add_argument("--skip-review", action="store_true", help="Skip the default Agent critic/reviser pass")
     return root
 
 
@@ -87,14 +166,21 @@ def run(argv: list[str] | None = None) -> int:
             )
             LOG.info("Translated %d segments; skipped %d completed segments", written, skipped)
         elif args.command == "validate":
-            issues = validate_project(args.project)
+            issues = validate_project(
+                args.project, set(args.section) or None, set(args.segment) or None
+            )
             for issue in issues:
                 LOG.error("%s: %s (%s)", issue.kind, issue.message, issue.segment_id)
             LOG.info("Validation completed with %d issue(s)", len(issues))
             return 1 if any(issue.severity == "error" for issue in issues) else 0
         elif args.command == "export":
-            translated, bilingual = export_project(args.project)
-            LOG.info("Wrote %s and %s", translated, bilingual)
+            formats = {"markdown", "epub"} if args.format == "all" else {args.format}
+            contents = {"translated", "bilingual"} if args.content == "all" else {args.content}
+            paths = export_selected(
+                args.project, formats, contents, args.translator, args.reference_credit,
+                set(args.section) or None, set(args.segment) or None,
+            )
+            LOG.info("Wrote %d artifact(s): %s", len(paths), ", ".join(str(path) for path in paths))
         elif args.command == "status":
             print(json.dumps(project_status(args.project).to_dict(), ensure_ascii=False, indent=2))
         elif args.command == "extract-knowledge":
@@ -102,6 +188,137 @@ def run(argv: list[str] | None = None) -> int:
             LOG.info("Proposed %d glossary entries and %d entities", len(glossary), len(entities))
         elif args.command == "migrate":
             LOG.info("Project schema is now version %d", migrate_project(args.project))
+        elif args.command == "reference-import":
+            sections, segments, alignments = import_reference(
+                args.project, args.source, args.language, args.credit
+            )
+            LOG.info("Imported reference with %d sections and %d segments; aligned %d chapters", sections, segments, alignments)
+        elif args.command == "reference-simplify":
+            formats = {"markdown", "epub"} if args.format == "all" else {args.format}
+            count, paths = simplify_reference_outputs(args.project, formats)
+            LOG.info("Wrote %d draft locale adaptations to %s", count, ", ".join(str(path) for path in paths))
+        elif args.command == "translation-import":
+            count = import_translation_draft(
+                args.project, args.draft, args.adapter, args.model, args.reason
+            )
+            LOG.info("Imported %d translation revision(s)", count)
+        elif args.command == "analyze":
+            analyzer = HeuristicBookAnalysisAdapter() if args.adapter == "heuristic" else OpenAIBookAnalysisAdapter(model=args.model)
+            brief = analyze_project(args.project, analyzer, refresh=args.refresh)
+            LOG.info(
+                "Generated %s strategy with %d concept rule(s)",
+                brief["genre"], len(brief["concept_rules"]),
+            )
+        elif args.command == "review":
+            reviewer = HeuristicReviewAdapter() if args.adapter == "heuristic" else OpenAIReviewAdapter(
+                model=args.model, requests_per_minute=args.requests_per_minute
+            )
+            reviewed, revised, skipped = review_project(
+                args.project, reviewer, set(args.segment) or None, set(args.section) or None
+            )
+            LOG.info("Reviewed %d translations; revised %d; skipped %d reviewed versions", reviewed, revised, skipped)
+        elif args.command == "coherence-review":
+            reviewer = (
+                HeuristicCoherenceReviewAdapter() if args.adapter == "heuristic"
+                else OpenAICoherenceReviewAdapter(
+                    model=args.model, requests_per_minute=args.requests_per_minute
+                )
+            )
+            if args.scope in {"section", "all"}:
+                reviewed, revised, skipped = review_sections(
+                    args.project, reviewer, set(args.section) or None
+                )
+                LOG.info(
+                    "Section review checked %d scope(s); revised %d translation(s); skipped %d",
+                    reviewed, revised, skipped,
+                )
+            if args.scope in {"book", "all"}:
+                reviewed, revised, skipped = review_book(args.project, reviewer)
+                LOG.info(
+                    "Book review checked %d scope(s); revised %d translation(s); skipped %d",
+                    reviewed, revised, skipped,
+                )
+        elif args.command == "summarize":
+            summary_adapter = (
+                HeuristicSummaryAdapter() if args.adapter == "heuristic"
+                else OpenAISummaryAdapter(
+                    model=args.model, requests_per_minute=args.requests_per_minute
+                )
+            )
+            generated, ambiguities, skipped = summarize_project(
+                args.project, summary_adapter, set(args.section) or None,
+                refresh=args.refresh,
+            )
+            LOG.info(
+                "Generated %d Section summaries and %d ambiguity record(s); skipped %d",
+                generated, ambiguities, skipped,
+            )
+        elif args.command == "auto":
+            units_path = args.project / "state" / "units.jsonl"
+            if not units_path.exists() or not units_path.read_text(encoding="utf-8").strip():
+                sections, segments, units = segment_document(args.project)
+                LOG.info("Segmented %d sections into %d segments and %d units", len(sections), len(segments), len(units))
+            analyzer = HeuristicBookAnalysisAdapter() if args.adapter == "mock" else OpenAIBookAnalysisAdapter(model=args.model)
+            brief = analyze_project(args.project, analyzer, refresh=args.refresh_analysis)
+            LOG.info("Analysis ready: %s; human review is optional", brief["genre"])
+            summary_adapter = (
+                HeuristicSummaryAdapter() if args.adapter == "mock"
+                else OpenAISummaryAdapter(
+                    model=args.model, requests_per_minute=args.requests_per_minute
+                )
+            )
+            generated, ambiguity_count, summary_skipped = summarize_project(
+                args.project, summary_adapter
+            )
+            LOG.info(
+                "Section context ready: %d generated, %d ambiguities, %d skipped",
+                generated, ambiguity_count, summary_skipped,
+            )
+            glossary, entities = propose_knowledge(args.project)
+            LOG.info("Knowledge ready: %d glossary rows, %d entities", len(glossary), len(entities))
+            adapter = MockTranslationAdapter() if args.adapter == "mock" else OpenAITranslationAdapter(
+                model=args.model, requests_per_minute=args.requests_per_minute
+            )
+            written, skipped = translate_project(args.project, adapter, reason="agent-first-auto")
+            LOG.info("Translated %d segments; skipped %d completed segments", written, skipped)
+            if not args.skip_review:
+                reviewer = HeuristicReviewAdapter() if args.adapter == "mock" else OpenAIReviewAdapter(
+                    model=args.model, requests_per_minute=args.requests_per_minute
+                )
+                reviewed, revised, review_skipped = review_project(args.project, reviewer)
+                LOG.info(
+                    "Agent review checked %d translations; revised %d; skipped %d reviewed versions",
+                    reviewed, revised, review_skipped,
+                )
+                coherence_reviewer = (
+                    HeuristicCoherenceReviewAdapter() if args.adapter == "mock"
+                    else OpenAICoherenceReviewAdapter(
+                        model=args.model, requests_per_minute=args.requests_per_minute
+                    )
+                )
+                section_reviewed, section_revised, section_skipped = review_sections(
+                    args.project, coherence_reviewer
+                )
+                book_reviewed, book_revised, book_skipped = review_book(
+                    args.project, coherence_reviewer
+                )
+                LOG.info(
+                    "Coherence review checked %d section/book scope(s); revised %d translation(s); skipped %d",
+                    section_reviewed + book_reviewed,
+                    section_revised + book_revised,
+                    section_skipped + book_skipped,
+                )
+            issues = validate_project(args.project)
+            errors = [issue for issue in issues if issue.severity == "error"]
+            if errors:
+                LOG.error("Auto export blocked by %d validation error(s); state is resumable", len(errors))
+                return 1
+            formats = {"markdown", "epub"} if args.format == "all" else {args.format}
+            contents = {"translated", "bilingual"} if args.content == "all" else {args.content}
+            paths = export_selected(
+                args.project, formats, contents, args.translator, args.reference_credit
+            )
+            LOG.info("Auto workflow wrote %d artifact(s): %s", len(paths), ", ".join(str(path) for path in paths))
         return 0
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
         LOG.error("%s", exc)

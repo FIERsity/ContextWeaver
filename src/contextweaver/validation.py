@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 
 from .markdown import format_signature
 from .models import GlossaryEntry, ReviewIssue, Segment, TranslationRecord
@@ -20,12 +21,28 @@ def quality_issues(
         if not record:
             continue
         output = record.translated_text.removeprefix("[MOCK] ")
-        expected = sorted(segment.format_signature)
+        # Recompute from retained source markup so parser bug fixes also apply
+        # to existing, resumable projects without forcing Segment ID changes.
+        expected = format_signature(segment.raw) if segment.raw else sorted(segment.format_signature)
         actual = format_signature(output)
         if expected != actual:
             issues.append(_issue("format_mismatch", f"Expected format markers {expected}, found {actual}", segment.id, "error"))
         if len(output.strip()) < max(1, len(segment.text.strip()) // 20):
             issues.append(_issue("suspiciously_short", "Translation is unusually short relative to source", segment.id, "warning"))
+        source_numbers = _numbers(segment.text)
+        target_numbers = _numbers(output)
+        if source_numbers != target_numbers:
+            issues.append(_issue(
+                "numeric_anchor_mismatch",
+                f"Source numeric anchors {source_numbers} differ from translation {target_numbers}",
+                segment.id, "error",
+            ))
+        for acronym in _acronyms(segment.text):
+            if acronym not in output:
+                issues.append(_issue(
+                    "acronym_missing", f"Source acronym '{acronym}' is absent from translation",
+                    segment.id, "warning",
+                ))
         repeated[segment.text.casefold()].add(output.casefold())
         for entry in glossary:
             if entry.status != "approved" or not entry.preferred_translation:
@@ -44,3 +61,20 @@ def quality_issues(
 def _issue(kind: str, message: str, segment_id: str, severity: str) -> ReviewIssue:
     return ReviewIssue(stable_id("issue", kind, segment_id, message), kind, message, segment_id, severity)  # type: ignore[arg-type]
 
+
+def _numbers(text: str) -> list[str]:
+    values = re.findall(
+        r"(?<![A-Za-z0-9_])(?:[$€£¥]\s*)?\d+(?:,\d{3})*(?:\.\d+)?%?(?![A-Za-z0-9_])",
+        text,
+    )
+    return sorted(re.sub(r"[^\d.]", "", value) for value in values)
+
+
+def _acronyms(text: str) -> list[str]:
+    common_words = {
+        "A", "ALL", "AND", "ARE", "AS", "AT", "BE", "BEEN", "BUT", "BY",
+        "FOR", "FROM", "HAVE", "HERE", "IN", "IS", "IT", "NOT", "OF", "ON",
+        "OR", "THAT", "THE", "THIS", "TO", "WAS", "WE", "WERE", "WITH",
+    }
+    candidates = set(re.findall(r"(?<![A-Za-z])[A-Z]{2,8}(?![A-Za-z])", text))
+    return sorted(candidates - common_words)

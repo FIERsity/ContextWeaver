@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from .adapters import TranslationAdapter
@@ -76,14 +78,22 @@ def import_document(root: Path, source: Path) -> SourceDocument:
         "text/markdown", digest, str(original.relative_to(root)), imported.source_format,
     )
     write_json(root / STATE / "source_document.json", document)
+    if imported.report is not None:
+        write_json(root / STATE / "import_report.json", imported.report)
     _update_manifest(root, source_sha256=digest, steps={"import": "completed"})
     return document
 
 
 def replace_document(root: Path, source: Path) -> SourceDocument:
     read_source(source)  # Validate before removing existing project state.
-    for name in ("source_document.json", "sections.jsonl", "segments.jsonl", "units.jsonl", "translations.jsonl", "issues.jsonl"):
+    for name in (
+        "source_document.json", "sections.jsonl", "segments.jsonl", "units.jsonl",
+        "translations.jsonl", "reviews.jsonl", "scope_reviews.jsonl", "issues.jsonl",
+        "translation_brief.json", "section_summaries.jsonl", "ambiguities.jsonl",
+    ):
         (root / STATE / name).unlink(missing_ok=True)
+    (root / "notes" / "translation_brief.md").unlink(missing_ok=True)
+    (root / "notes" / "section_summaries.md").unlink(missing_ok=True)
     for old in (root / "source").glob("document.*"):
         old.unlink()
     return import_document(root, source)
@@ -114,14 +124,35 @@ def segment_document(root: Path, unit_size: int = 3) -> tuple[list[Section], lis
 
 
 def build_context(root: Path, unit: TranslationUnit) -> ContextPacket:
-    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
-    index = {segment.id: position for position, segment in enumerate(segments)}
+    paths = [root / STATE / "segments.jsonl", root / STATE / "glossary.csv", root / STATE / "entities.jsonl"]
+    stamps = tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
+    segments, index, glossary, entities = _context_index(str(root.resolve()), stamps)
     selected = [segments[index[item]] for item in unit.segment_ids]
     first, last = index[selected[0].id], index[selected[-1].id]
+    from .reference import reference_context
+    project = _project(root)
+    brief_path = root / STATE / "translation_brief.json"
+    strategy = read_json(brief_path) if brief_path.exists() else {}
+
     return ContextPacket(
         unit.id, selected, segments[first - 1].text if first else None,
         segments[last + 1].text if last + 1 < len(segments) else None,
-        _section_summary(root, unit.section_id), _glossary(root),
+        _section_summary(root, unit.section_id), glossary, entities, reference_context(root, selected),
+        project.source_language, project.target_language, strategy,
+    )
+
+
+@lru_cache(maxsize=16)
+def _context_index(
+    root_text: str, stamps: tuple[int, ...]
+) -> tuple[list[Segment], dict[str, int], list[GlossaryEntry], list[Entity]]:
+    del stamps
+    root = Path(root_text)
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    return (
+        segments,
+        {segment.id: position for position, segment in enumerate(segments)},
+        _glossary(root),
         read_jsonl(root / STATE / "entities.jsonl", Entity),
     )
 
@@ -149,7 +180,11 @@ def translate_project(
         if not pending:
             skipped += len(candidates)
             continue
-        pending_packet = ContextPacket(unit.id, pending, packet.previous_text, packet.next_text, packet.section_summary, packet.glossary, packet.entities)
+        pending_packet = ContextPacket(
+            unit.id, pending, packet.previous_text, packet.next_text, packet.section_summary,
+            packet.glossary, packet.entities, packet.reference_texts,
+            packet.source_language, packet.target_language, packet.translation_strategy,
+        )
         outputs = adapter.translate(pending_packet)
         if len(outputs) != len(pending):
             raise RuntimeError(f"Adapter returned {len(outputs)} outputs for {len(pending)} segments")
@@ -160,19 +195,38 @@ def translate_project(
             revision = previous.revision + 1 if previous else 1
             record = TranslationRecord(
                 stable_id("tr", unit.id, segment.id, adapter.name, adapter.model, revision), unit.id, segment.id,
-                output, adapter.name, adapter.model, "translate-v1", datetime.now(timezone.utc).isoformat(),
+                output, adapter.name, adapter.model, "translate-v3-source-faithful-natural-zh", datetime.now(timezone.utc).isoformat(),
                 hashlib.sha256(segment.text.encode()).hexdigest(), "completed", revision,
                 previous.id if previous else None, reason,
             )
             append_jsonl(root / STATE / "translations.jsonl", record)
             active[segment.id] = record
             written += 1
-    _update_manifest(root, translation_count=len(active), steps={"translate": "completed"})
+    total_segments = len(read_jsonl(root / STATE / "segments.jsonl", Segment))
+    translation_status = "completed" if len(active) == total_segments else "pending"
+    _update_manifest(root, translation_count=len(active), steps={"translate": translation_status})
     return written, skipped
 
 
-def validate_project(root: Path) -> list[ReviewIssue]:
-    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+def validate_project(
+    root: Path,
+    section_ids: set[str] | None = None,
+    segment_ids: set[str] | None = None,
+) -> list[ReviewIssue]:
+    all_segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    segments = [
+        item for item in all_segments
+        if (section_ids is None or item.section_id in section_ids)
+        and (segment_ids is None or item.id in segment_ids)
+    ]
+    if section_ids:
+        unknown = section_ids - {item.section_id for item in all_segments}
+        if unknown:
+            raise ValueError(f"Unknown section IDs: {sorted(unknown)}")
+    if segment_ids:
+        unknown_segments = segment_ids - {item.id for item in all_segments}
+        if unknown_segments:
+            raise ValueError(f"Unknown segment IDs: {sorted(unknown_segments)}")
     records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
     source_ids = {item.id for item in segments}
     active = active_translations(records)
@@ -181,48 +235,163 @@ def validate_project(root: Path) -> list[ReviewIssue]:
     for segment in segments:
         if counts.get(segment.id, 0) == 0:
             issues.append(_issue("missing_translation", "No completed translation", segment.id, "error"))
-    for segment_id in counts.keys() - source_ids:
-        issues.append(_issue("orphan_translation", "Translation has no source segment", segment_id, "error"))
+    if section_ids is None and segment_ids is None:
+        for segment_id in counts.keys() - source_ids:
+            issues.append(_issue("orphan_translation", "Translation has no source segment", segment_id, "error"))
     from .validation import quality_issues
 
     issues.extend(quality_issues(segments, records, _glossary(root)))
-    write_jsonl(root / STATE / "issues.jsonl", issues)
-    _update_manifest(root, steps={"validate": "completed" if not issues else "needs_review"})
+    if section_ids or segment_ids:
+        scope_ids = sorted((section_ids or set()) | (segment_ids or set()))
+        scope = scope_ids[0] if len(scope_ids) == 1 else stable_id("scope", *scope_ids)
+        write_jsonl(root / STATE / "issues" / f"{scope}.jsonl", issues)
+    else:
+        write_jsonl(root / STATE / "issues.jsonl", issues)
+        _update_manifest(root, steps={"validate": "completed" if not issues else "needs_review"})
     return issues
 
 
 def export_project(root: Path) -> tuple[Path, Path]:
-    issues = validate_project(root)
+    paths = export_selected(root, {"markdown"}, {"translated", "bilingual"})
+    return paths[0], paths[1]
+
+
+def export_selected(
+    root: Path,
+    formats: set[str],
+    contents: set[str],
+    translator: str | None = None,
+    reference_credit: str | None = None,
+    section_ids: set[str] | None = None,
+    segment_ids: set[str] | None = None,
+) -> list[Path]:
+    valid_formats = {"markdown", "epub"}
+    valid_contents = {"translated", "bilingual"}
+    if not formats or not formats <= valid_formats:
+        raise ValueError(f"formats must be selected from {sorted(valid_formats)}")
+    if not contents or not contents <= valid_contents:
+        raise ValueError(f"contents must be selected from {sorted(valid_contents)}")
+    issues = validate_project(root, section_ids, segment_ids)
     errors = [issue for issue in issues if issue.severity == "error"]
     if errors:
         raise RuntimeError(f"Export blocked by {len(errors)} validation error(s)")
     sections = read_jsonl(root / STATE / "sections.jsonl", Section)
     segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    if section_ids:
+        sections = [item for item in sections if item.id in section_ids]
+        segments = [item for item in segments if item.section_id in section_ids]
+    if segment_ids:
+        segments = [item for item in segments if item.id in segment_ids]
+        included_sections = {item.section_id for item in segments}
+        sections = [item for item in sections if item.id in included_sections]
     records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
-    translated = {segment_id: item.translated_text for segment_id, item in active_translations(records).items()}
-    section_map = {section.id: section for section in sections}
-    translated_lines: list[str] = []
-    bilingual_lines: list[str] = []
-    previous = None
-    for segment in segments:
-        if segment.section_id != previous:
-            title = section_map[segment.section_id].title
-            heading = "#" * section_map[segment.section_id].level
-            translated_lines.extend([f"{heading} {title}", ""])
-            bilingual_lines.extend([f"{heading} {title}", ""])
-            previous = segment.section_id
-        translated_lines.extend([translated[segment.id], ""])
-        bilingual_lines.extend([f"> {segment.text}", "", translated[segment.id], "", "---", ""])
-    translated_path = root / "output" / "translated.md"
-    bilingual_path = root / "output" / "bilingual.md"
-    translated_path.write_text("\n".join(translated_lines).rstrip() + "\n", encoding="utf-8")
-    bilingual_path.write_text("\n".join(bilingual_lines).rstrip() + "\n", encoding="utf-8")
-    _update_manifest(root, steps={"export": "completed"})
-    return translated_path, bilingual_path
+    active = active_translations(records)
+    translated = {segment_id: item.translated_text for segment_id, item in active.items()}
+    from .exporters import render_markdown, write_epub
+
+    project = _project(root)
+    source = _require_source(root)
+    inferred_translator = _translator_attribution(list(active.values()))
+    provenance = {
+        "title": project.name,
+        "source_title": source.title,
+        "source_language": project.source_language,
+        "target_language": project.target_language,
+        "translator": translator or inferred_translator,
+        "reference_translation": reference_credit or _reference_credit(root),
+        "fidelity_note": "The source-language document is authoritative. Human translations are consultation references only.",
+    }
+    write_json(root / STATE / "export_metadata.json", provenance)
+    output_root = root / "output"
+    if section_ids or segment_ids:
+        scope_ids = sorted((section_ids or set()) | (segment_ids or set()))
+        scope = scope_ids[0] if len(scope_ids) == 1 else stable_id("scope", *scope_ids)
+        output_root = output_root / "sections" / scope
+    paths: list[Path] = []
+    for content in ("translated", "bilingual"):
+        if content not in contents:
+            continue
+        if "markdown" in formats:
+            path = output_root / f"{content}.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                render_markdown(sections, segments, translated, content, provenance), encoding="utf-8"
+            )
+            paths.append(path)
+        if "epub" in formats:
+            path = output_root / f"{content}.epub"
+            write_epub(path, project, sections, segments, translated, content, provenance)
+            paths.append(path)
+    if section_ids is None and segment_ids is None:
+        _update_manifest(root, steps={"export": "completed"})
+    return paths
+
+
+def import_translation_draft(
+    root: Path,
+    draft: Path,
+    adapter: str,
+    model: str,
+    reason: str,
+) -> int:
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
+    segment_map = {item.id: item for item in segments}
+    unit_by_segment = {
+        segment_id: unit for unit in units for segment_id in unit.segment_ids
+    }
+    existing = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
+    active = active_translations(existing)
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for line_number, line in enumerate(draft.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        if set(raw) != {"segment_id", "translated_text"}:
+            raise ValueError(f"{draft}:{line_number}: expected segment_id and translated_text only")
+        segment_id = str(raw["segment_id"])
+        text = str(raw["translated_text"])
+        if segment_id not in segment_map:
+            raise ValueError(f"{draft}:{line_number}: unknown segment ID {segment_id}")
+        if segment_id in seen:
+            raise ValueError(f"{draft}:{line_number}: duplicate segment ID {segment_id}")
+        if not text.strip():
+            raise ValueError(f"{draft}:{line_number}: empty translation")
+        seen.add(segment_id)
+        rows.append({"segment_id": segment_id, "translated_text": text})
+    for row in rows:
+        segment = segment_map[row["segment_id"]]
+        unit = unit_by_segment[segment.id]
+        previous = active.get(segment.id)
+        revision = previous.revision + 1 if previous else 1
+        record = TranslationRecord(
+            stable_id("tr", unit.id, segment.id, adapter, model, revision), unit.id, segment.id,
+            row["translated_text"], adapter, model, "translate-v3-source-faithful-natural-zh",
+            datetime.now(timezone.utc).isoformat(), hashlib.sha256(segment.text.encode()).hexdigest(),
+            "completed", revision, previous.id if previous else None, reason,
+        )
+        append_jsonl(root / STATE / "translations.jsonl", record)
+        active[segment.id] = record
+    total_segments = len(segments)
+    translation_status = "completed" if len(active) == total_segments else "pending"
+    _update_manifest(root, translation_count=len(active), steps={"translate": translation_status})
+    return len(rows)
 
 
 def project_status(root: Path) -> Manifest:
-    return Manifest(**read_json(root / STATE / "manifest.json"))
+    path = root / STATE / "manifest.json"
+    data = read_json(path)
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
+    if segments:
+        count = len(active_translations(records))
+        data["translation_count"] = count
+        data["steps"]["translate"] = "completed" if count == len(segments) else "pending"
+        if count != len(segments):
+            data["steps"]["export"] = "pending"
+    write_json(path, data)
+    return Manifest(**data)
 
 
 def migrate_project(root: Path) -> int:
@@ -291,8 +460,12 @@ def _glossary(root: Path) -> list[GlossaryEntry]:
 
 
 def _section_summary(root: Path, section_id: str) -> str | None:
-    path = root / STATE / "section_summaries.json"
-    return read_json(path).get(section_id) if path.exists() else None
+    from .models import SectionSummary
+    from .summaries import active_section_summaries
+
+    records = read_jsonl(root / STATE / "section_summaries.jsonl", SectionSummary)
+    summary = active_section_summaries(records).get(section_id)
+    return summary.summary if summary else None
 
 
 def _project(root: Path) -> Project:
@@ -340,6 +513,23 @@ def active_translations(records: list[TranslationRecord]) -> dict[str, Translati
         if record.status == "completed" and (record.segment_id not in active or record.revision > active[record.segment_id].revision):
             active[record.segment_id] = record
     return active
+
+
+def _translator_attribution(records: list[TranslationRecord]) -> str:
+    signatures = sorted({(item.adapter, item.model) for item in records})
+    if not signatures:
+        raise RuntimeError("Cannot attribute an export without completed TranslationRecords")
+    if signatures == [("mock", "deterministic-copy-v1")]:
+        return "ContextWeaver Mock Adapter (workflow test; not a final translation)"
+    return "; ".join(f"ContextWeaver Agent using {adapter}/{model}" for adapter, model in signatures)
+
+
+def _reference_credit(root: Path) -> str:
+    path = root / STATE / "reference" / "document.json"
+    if not path.exists():
+        return ""
+    data = read_json(path)
+    return str(data.get("credit", ""))
 
 
 def _selected_segments(root: Path, segment_ids: set[str] | None, section_ids: set[str] | None, term: str | None) -> set[str] | None:

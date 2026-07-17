@@ -57,6 +57,9 @@ def parse_markdown(source: str) -> list[MarkdownBlock]:
 
 def format_signature(raw: str) -> list[str]:
     signature: list[str] = []
+    # Link destinations may legitimately contain underscores (for example,
+    # ``[Chapter 1](009_Chapter_002.xhtml)``).  They are not emphasis markup.
+    prose_for_emphasis = re.sub(r"!?\[[^]]*\]\([^)]+\)", "", raw)
     checks = {
         "emphasis": r"(?<!\*)\*[^*\n]+\*(?!\*)|(?<!_)_[^_\n]+_(?!_)",
         "strong": r"\*\*[^*\n]+\*\*|__[^_\n]+__",
@@ -66,7 +69,8 @@ def format_signature(raw: str) -> list[str]:
         "footnote_ref": r"\[\^[^]]+\]",
     }
     for name, pattern in checks.items():
-        signature.extend([name] * len(re.findall(pattern, raw)))
+        haystack = prose_for_emphasis if name == "emphasis" else raw
+        signature.extend([name] * len(re.findall(pattern, haystack)))
     if raw.lstrip().startswith(("- ", "* ", "+ ")):
         signature.append("unordered_list")
     if re.match(r"^\s*\d+[.)]\s", raw):

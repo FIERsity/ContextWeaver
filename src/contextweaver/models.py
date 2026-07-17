@@ -98,6 +98,10 @@ class ContextPacket(Record):
     section_summary: str | None
     glossary: list[GlossaryEntry]
     entities: list[Entity]
+    reference_texts: list[str] = field(default_factory=list)
+    source_language: str = ""
+    target_language: str = ""
+    translation_strategy: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -125,6 +129,85 @@ class ReviewIssue(Record):
     segment_id: str | None = None
     severity: Literal["info", "warning", "error"] = "warning"
     status: Literal["open", "resolved"] = "open"
+
+
+@dataclass(frozen=True)
+class TranslationReview(Record):
+    id: str
+    segment_id: str
+    input_translation_id: str
+    output_translation_id: str
+    adapter: str
+    model: str
+    created_at: str
+    verdict: Literal["pass", "revised"]
+    categories: list[str] = field(default_factory=list)
+    rationale: str = ""
+    confidence: float = 1.0
+
+
+@dataclass(frozen=True)
+class ScopeReview(Record):
+    id: str
+    scope_type: Literal["section", "book"]
+    scope_id: str
+    input_digest: str
+    output_digest: str
+    adapter: str
+    model: str
+    created_at: str
+    verdict: Literal["pass", "revised"]
+    categories: list[str] = field(default_factory=list)
+    rationale: str = ""
+    confidence: float = 1.0
+    evidence_segment_ids: list[str] = field(default_factory=list)
+    revised_translation_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SectionSummary(Record):
+    id: str
+    section_id: str
+    source_digest: str
+    summary: str
+    key_points: list[str]
+    evidence_segment_ids: list[str]
+    adapter: str
+    model: str
+    created_at: str
+    confidence: float = 1.0
+    revision: int = 1
+    supersedes: str | None = None
+
+
+@dataclass(frozen=True)
+class AmbiguityRecord(Record):
+    id: str
+    section_id: str
+    category: Literal["reference", "term", "entity", "source", "rhetoric", "other"]
+    description: str
+    evidence_segment_ids: list[str]
+    confidence: float
+    status: Literal["open", "resolved"] = "open"
+    resolution: str = ""
+
+
+@dataclass(frozen=True)
+class ReferenceAlignment(Record):
+    source_section_id: str
+    reference_section_id: str
+    chapter_key: str
+    confidence: float
+    method: str = "chapter-key"
+
+
+@dataclass(frozen=True)
+class LocaleAdaptation(Record):
+    reference_segment_id: str
+    source_text: str
+    adapted_text: str
+    converter: str
+    status: Literal["draft", "approved", "rejected"] = "draft"
 
 
 @dataclass(frozen=True)

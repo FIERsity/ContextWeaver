@@ -9,6 +9,7 @@ from contextweaver.adapters import MockTranslationAdapter, OpenAITranslationAdap
 from contextweaver.knowledge import propose_knowledge
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
+    build_context,
     active_translations,
     import_document,
     init_project,
@@ -16,6 +17,7 @@ from contextweaver.pipeline import (
     translate_project,
     validate_project,
 )
+from contextweaver.reference import import_reference, simplify_reference, simplify_reference_outputs
 from contextweaver.storage import read_jsonl
 
 
@@ -66,6 +68,8 @@ def test_epub_import(tmp_path: Path) -> None:
     root = _project(tmp_path, source)
     _, segments, _ = segment_document(root)
     assert segments[0].text == "Hello EPUB."
+    report = json.loads((root / "state" / "import_report.json").read_text())
+    assert report["spine_documents"] == 1
 
 
 def test_knowledge_proposals_have_evidence_and_preserve_edits(tmp_path: Path) -> None:
@@ -161,3 +165,52 @@ def test_format_and_terminology_validation(tmp_path: Path) -> None:
     glossary.write_text("term,preferred_translation,allowed_variants,note,source_segment_id,confidence,evidence_segment_ids,status\nContextWeaver,上下文编织器,,,1,,approved\n", encoding="utf-8")
     issues = validate_project(root)
     assert "terminology_mismatch" in {item.kind for item in issues}
+
+
+def test_numeric_anchor_validation_is_blocking(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nOutput rose 25% in 2024.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    translate_project(root, MockTranslationAdapter())
+    records = root / "state" / "translations.jsonl"
+    records.write_text(records.read_text().replace("25%", "20%"), encoding="utf-8")
+    issues = validate_project(root)
+    assert "numeric_anchor_mismatch" in {item.kind for item in issues}
+
+
+def test_numeric_anchors_work_next_to_cjk() -> None:
+    from contextweaver.validation import _numbers
+
+    assert _numbers("In 1791, close to 90 percent") == ["1791", "90"]
+    assert _numbers("1791年，接近90%") == ["1791", "90"]
+
+
+def test_link_destination_underscores_are_not_emphasis() -> None:
+    from contextweaver.markdown import format_signature
+
+    assert format_signature("See [Chapter 1](009_Chapter_002.xhtml).") == ["link"]
+
+
+def test_human_reference_alignment_and_mainland_draft(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# 1 Control over Technology\n\nDigital technology changes work.\n\nA second paragraph.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, _, units = segment_document(root, unit_size=1)
+    reference = tmp_path / "reference.md"
+    reference.write_text("# １ 對科技的掌控\n\n數位科技改變工作。\n\n第二段使用軟體與網路。\n", encoding="utf-8")
+    assert import_reference(root, reference, "zh-TW", "Human Translator (reference)") == (1, 2, 1)
+    packet = build_context(root, units[0])
+    assert packet.reference_texts
+    count, output = simplify_reference(root)
+    assert count == 2
+    simplified = output.read_text(encoding="utf-8")
+    assert "数字科技" in simplified
+    assert "软件与网络" in simplified
+    assert "Human Translator (reference)" in simplified
+    assert "not a new translation" in simplified
+    packet = build_context(root, units[1])
+    assert any("软件与网络" in item for item in packet.reference_texts)
+    _, paths = simplify_reference_outputs(root, {"epub"})
+    assert paths[0].name == "reference-zh-CN.epub"
+    assert epub.read_epub(str(paths[0]), options={"ignore_ncx": True}).spine

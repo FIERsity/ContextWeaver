@@ -9,6 +9,28 @@ ContextWeaver separates durable domain state from orchestration and provider cal
 5. Translation records are appended and completed Segment IDs are skipped. Selected segments append linked revisions.
 6. Validation selects the newest revision, requires complete alignment, and checks structure, terminology, suspicious length, and repeated-source consistency.
 
+Before step 3, the Agent-first path samples every section and writes an automatic work profile. Human review is never a prerequisite for continuing.
+
+## Agent-first translation strategy
+
+`analyze` samples the beginning, middle, and end of each Section with a bounded total, then writes `state/translation_brief.json` plus the editable `notes/translation_brief.md`. The brief records genre, disciplinary domains, source style, target style, audience, behavioral principles, high-impact concept rules, evidence Segment IDs, confidence, and truthful generator attribution. It is auxiliary versioned state, so adding it does not alter schema-v2 domain records or stable IDs.
+
+Every ContextPacket carries the current brief. Concept rules are context-sensitive sense guidance rather than global string replacements: for example, *power* may indicate social authority, physical force, or computational capacity. Existing briefs are reused on resume so manual edits are not overwritten; regeneration requires `--refresh` or `--refresh-analysis`.
+
+`summarize` builds bounded source-only dossiers for each Section before translation. `section_summaries.jsonl` stores append-only summaries, key points, evidence Segment IDs, confidence, adapter/model, source-plus-strategy digest, revision, and `supersedes`. The latest summary enters every ContextPacket and later coherence-review dossier. A stable digest skips unchanged Sections; a changed translation strategy makes affected summaries eligible for regeneration. `notes/section_summaries.md` is the readable mirror.
+
+Summarizers may emit conservative ambiguity records for unresolved references, terms, entities, source defects, or rhetoric. `ambiguities.jsonl` requires evidence Segment IDs and confidence. Open ambiguities inform coherence review but do not block autonomous translation or require human approval. Duplicate ambiguity identities are not appended on resume.
+
+`auto` is the non-interactive main path. It segments when needed, creates or resumes analysis, extracts knowledge, translates pending Segments, runs the Agent Critic/Reviser, validates the complete project, and exports only when blocking errors are absent. Low-confidence strategy decisions do not require approval. Human review remains an optional correction and revision interface.
+
+## Agent Critic and Reviser
+
+`review` evaluates the newest TranslationRecord for each selected Segment against its source, adjacent context, current translation strategy, terminology, entities, and optional human-reference evidence. Review categories cover semantic fidelity, concept role, terminology, natural Chinese, rhetoric, and format. Provider-neutral ReviewAdapters return either `pass` or a complete replacement translation.
+
+`state/reviews.jsonl` is append-only. Each TranslationReview stores the exact input TranslationRecord ID, accepted or revised output ID, adapter/model, verdict, categories, rationale, and confidence. A changed result is appended to `translations.jsonl` with prompt version `review-v1-agent-critic-reviser` and a `supersedes` link. Empty or unchanged revisions are hard errors. Both input and output IDs are marked reviewed, so reruns skip the same version while a later selective translation naturally becomes eligible for a new review.
+
+Chapter and book coherence use `scope_reviews.jsonl`. Each ScopeReview fingerprints the ordered active TranslationRecord IDs before and after review, records the bounded evidence Segment IDs, and links any revised TranslationRecord IDs. A Section dossier contains all Segments when small; otherwise it combines evenly stratified passages with high-risk concept hits under a character budget. A book dossier combines first/middle/last passages from every Section with a bounded concept concordance. Reviewers may revise only evidence Segments, preventing unsupported edits to omitted text. Any later translation change alters the scope fingerprint and makes that scope eligible for review again.
+
 ## Stable identity
 
 IDs use truncated SHA-256 values over namespaced inputs. Segment identity includes the imported document digest, section identity, source ordinal, and normalized text. The same imported bytes and segmentation algorithm therefore reproduce the same IDs. A changed source is a new document; it must not silently inherit translations from an older source.
@@ -27,9 +49,19 @@ SQLite is intentionally absent: phase-one state is small enough for transparent 
 
 Markdown-it token ranges retain each top-level block's raw Markdown, plain text, type, source line locator, and format signature. TXT headings are normalized to Markdown. DOCX headings, emphasis, simple lists, and tables are converted with `python-docx`; EPUB spine documents are converted with EbookLib and Beautiful Soup. The original file remains available to audit lossy conversion.
 
-## Human-reviewed knowledge
+## Evidence-backed knowledge
 
-`extract-knowledge` conservatively proposes repeated proper-name candidates. Glossary and entity records include confidence, review status, and evidence Segment IDs. Only approved records enter context packets. Extraction merges new candidates rather than overwriting human decisions.
+`extract-knowledge` conservatively proposes repeated proper-name candidates. Glossary and entity records include confidence, review status, and evidence Segment IDs. Only approved records enter context packets, but proposed records never block the autonomous route. Extraction merges new candidates rather than overwriting later Agent or human decisions.
+
+## Human translation references
+
+Reference editions live under `state/reference` and never replace the source document or TranslationRecords. Explicit prologue/chapter keys align editions even when their EPUB spine and subsection layouts differ. A translation unit receives three approximately positioned reference segments from the full aligned chapter, keeping context bounded. For a zh-TW reference and zh-CN target, `reference-simplify` stores an OpenCC `tw2sp` draft beside the untouched human text; later model translation sees the Simplified draft as evidence and is instructed not to assume exact paragraph alignment or copy regional wording blindly.
+
+The source-language Segment is the sole semantic authority. Prompt version `translate-v3-source-faithful-natural-zh` requires conflicts, additions, omissions, and changes in claim strength to be resolved against the source rather than the reference. For zh-CN, fidelity is semantic rather than syntactic: adapters may reorder clauses, split or merge sentences, restore natural Chinese subjects and transitions, and reshape punctuation, provided facts, qualifications, argument relations, tone, and important rhetoric remain intact. Reference credits remain separate from translator attribution.
+
+Agent-native offline work uses `translation-import` with strict two-field JSONL. The importer validates IDs, rejects duplicate or empty rows, appends immutable TranslationRecords, records the truthful adapter/model and reason, and never infers that an online API was used. Validation and export can be scoped to explicit Segment or Section IDs; scoped issue files do not mark the entire project complete.
+
+Deterministic fidelity checks currently compare numeric anchors (including currency and percentages), acronyms, Markdown structure, approved terminology, suspicious length, and repeated-source consistency. Semantic entailment and natural-language concept roles are handled by the optional online Critic/Reviser; the offline reviewer supplies deterministic workflow checks only.
 
 ## Online adapter boundary
 
@@ -37,8 +69,16 @@ The optional OpenAI adapter uses the Responses API with a strict JSON Schema req
 
 ## Codex Skill surface
 
-`skills/contextweaver-translate` is the agent-facing orchestration layer. It instructs Codex to inspect state before mutation, use the CLI as the durable execution layer, pause for glossary/entity review, preserve revision history, and validate before export. Its read-only inspection script emits JSON so agents can determine the next safe step without parsing human-oriented logs. The Skill contains no provider credentials and does not bypass CLI invariants.
+`skills/contextweaver-translate` is the agent-facing orchestration layer. It instructs Codex to inspect state before mutation, use the CLI as the durable execution layer, generate or reuse the automatic translation brief, preserve revision history, and validate before export. Its read-only inspection script emits JSON so agents can determine the next safe step without parsing human-oriented logs. The Skill contains no provider credentials and does not bypass CLI invariants.
+
+## Output rendering
+
+Export selection is the Cartesian choice of format (`markdown`, `epub`, or both) and content (`translated`, `bilingual`, or both). Every route uses the newest active TranslationRecord and the same pre-export validation gate. EPUB output contains metadata, navigation, CSS, and one XHTML chapter per non-empty Section. Markdown is rendered with embedded HTML disabled. Source image references are downgraded to labeled text placeholders until the importer can copy and rewrite binary assets safely.
+
+`state/export_metadata.json` records the source title/language, target language, actual translating Agent/model, optional human-reference credit, and fidelity policy. The same information appears in Markdown front matter, EPUB Dublin Core fields, and a visible EPUB provenance page. Attribution is inferred from active TranslationRecords unless explicitly overridden; mock output is labeled as non-final.
 
 ## Known phase-one limits
 
 Nested Markdown constructs remain one top-level Segment. DOCX/EPUB normalization omits images and some footnote, hyperlink, nested-table, and style details. Knowledge extraction is conservative and oriented toward capitalized names. Deterministic rules cannot judge semantic fidelity or literary quality.
+
+The v1.0 completion gate is maintained in [v1-acceptance.md](v1-acceptance.md); new feature work should be judged against those exit criteria rather than expanding the framework indefinitely.
