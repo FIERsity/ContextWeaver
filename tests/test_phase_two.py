@@ -186,6 +186,18 @@ def test_format_and_terminology_validation(tmp_path: Path) -> None:
     assert "terminology_mismatch" in {item.kind for item in issues}
 
 
+def test_image_placeholders_do_not_trigger_repeated_prose_warning(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\n![image](one.jpg)\n\n![image](two.jpg)\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    segment_document(root)
+    translate_project(root, MockTranslationAdapter())
+
+    issues = validate_project(root)
+
+    assert "repeated_source_inconsistent" not in {item.kind for item in issues}
+
+
 def test_numeric_anchor_validation_is_blocking(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
     source.write_text("# One\n\nOutput rose 25% in 2024.\n", encoding="utf-8")

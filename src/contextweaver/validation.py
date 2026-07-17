@@ -129,7 +129,11 @@ def quality_issues(
                         "warning",
                     )
                 )
-        repeated[segment.text.casefold()].add(output.casefold())
+        # Image placeholders share the same visible alt text while preserving
+        # different destinations. They are structural passthrough content, not
+        # repeated prose that should have matching translations.
+        if not _is_image_only(segment):
+            repeated[segment.text.casefold()].add(output.casefold())
         for entry in glossary:
             if entry.status != "approved" or not entry.preferred_translation:
                 continue
@@ -146,7 +150,7 @@ def quality_issues(
                     )
     inconsistent = {text for text, outputs in repeated.items() if len(outputs) > 1}
     for segment in segments:
-        if segment.text.casefold() in inconsistent:
+        if not _is_image_only(segment) and segment.text.casefold() in inconsistent:
             issues.append(
                 _issue(
                     "repeated_source_inconsistent",
@@ -156,6 +160,10 @@ def quality_issues(
                 )
             )
     return issues
+
+
+def _is_image_only(segment: Segment) -> bool:
+    return bool(re.fullmatch(r"\s*!\[[^]]*\]\([^)]+\)\s*", segment.raw or segment.text))
 
 
 def _balanced_numeric_anchors(anchors: list[str]) -> list[str]:
