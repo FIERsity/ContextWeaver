@@ -636,8 +636,16 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )
+    # Chinese ``一个/一名/一位`` often supplies a natural singular article
+    # where English makes no count claim.  Only treat ``一`` as an anchor for
+    # elapsed-time units; other explicit Chinese cardinals remain comparable.
     replace(
-        r"(?<!十)([一二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月|人|名)",
+        r"(?<!十)一\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月)",
+        lambda _match: 1,
+        "quantity",
+    )
+    replace(
+        r"(?<!十)([二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月|人|名)",
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )
