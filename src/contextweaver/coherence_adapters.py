@@ -47,7 +47,8 @@ class HeuristicCoherenceReviewAdapter(CoherenceReviewAdapter):
         rationale = (
             f"Found {inconsistent} repeated source form(s) with differing translations; "
             "offline review records the signal but does not guess a revision."
-            if inconsistent else "No deterministic chapter/book coherence issue found."
+            if inconsistent
+            else "No deterministic chapter/book coherence issue found."
         )
         return ScopeReviewDecision("pass", categories, rationale, 0.6)
 
@@ -93,15 +94,34 @@ class OpenAICoherenceReviewAdapter(CoherenceReviewAdapter):
             "type": "object",
             "properties": {
                 "verdict": {"type": "string", "enum": ["pass", "revise"]},
-                "categories": {"type": "array", "items": {"type": "string", "enum": [
-                    "concept_consistency", "terminology_consistency", "entity_consistency",
-                    "voice_consistency", "argument_continuity", "cross_section_consistency",
-                ]}},
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "concept_consistency",
+                            "terminology_consistency",
+                            "entity_consistency",
+                            "voice_consistency",
+                            "argument_continuity",
+                            "cross_section_consistency",
+                        ],
+                    },
+                },
                 "rationale": {"type": "string"},
                 "confidence": {"type": "number"},
-                "revisions": {"type": "array", "items": {"type": "object", "properties": {
-                    "segment_id": {"type": "string"}, "revised_translation": {"type": "string"},
-                }, "required": ["segment_id", "revised_translation"], "additionalProperties": False}},
+                "revisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "segment_id": {"type": "string"},
+                            "revised_translation": {"type": "string"},
+                        },
+                        "required": ["segment_id", "revised_translation"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": ["verdict", "categories", "rationale", "confidence", "revisions"],
             "additionalProperties": False,
@@ -117,7 +137,14 @@ class OpenAICoherenceReviewAdapter(CoherenceReviewAdapter):
                         "Revise only evidence segments whose complete replacement can be justified from the dossier. Never invent text for omitted segments."
                     ),
                     input=json.dumps(payload, ensure_ascii=False),
-                    text={"format": {"type": "json_schema", "name": "coherence_review", "strict": True, "schema": schema}},
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "coherence_review",
+                            "strict": True,
+                            "schema": schema,
+                        }
+                    },
                 )
                 raw = json.loads(response.output_text)
                 revisions: dict[str, str] = {}
@@ -128,8 +155,10 @@ class OpenAICoherenceReviewAdapter(CoherenceReviewAdapter):
                     revisions[segment_id] = str(item["revised_translation"])
                 return ScopeReviewDecision(
                     "revised" if raw["verdict"] == "revise" else "pass",
-                    list(raw["categories"]), str(raw["rationale"]),
-                    float(raw["confidence"]), revisions,
+                    list(raw["categories"]),
+                    str(raw["rationale"]),
+                    float(raw["confidence"]),
+                    revisions,
                 )
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):

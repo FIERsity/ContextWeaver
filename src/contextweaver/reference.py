@@ -34,9 +34,14 @@ def import_reference(
     normalized = directory / "document.md"
     normalized.write_text(imported.markdown, encoding="utf-8")
     document = SourceDocument(
-        stable_id("ref", digest), stable_id("reference-project", root.resolve()), imported.title,
-        str(normalized.relative_to(root)), "text/markdown", digest,
-        str(original.relative_to(root)), imported.source_format,
+        stable_id("ref", digest),
+        stable_id("reference-project", root.resolve()),
+        imported.title,
+        str(normalized.relative_to(root)),
+        "text/markdown",
+        digest,
+        str(original.relative_to(root)),
+        imported.source_format,
     )
     sections, segments = _parse(document, imported.markdown)
     write_json(
@@ -51,14 +56,20 @@ def import_reference(
     return len(sections), len(segments), len(alignments)
 
 
-def align_reference(root: Path, reference_sections: list[Section] | None = None) -> list[ReferenceAlignment]:
+def align_reference(
+    root: Path, reference_sections: list[Section] | None = None
+) -> list[ReferenceAlignment]:
     source_sections = read_jsonl(root / STATE / "sections.jsonl", Section)
     if not source_sections:
         raise RuntimeError("Segment the source before importing a reference translation")
     if reference_sections is None:
         reference_sections = read_jsonl(root / STATE / REFERENCE / "sections.jsonl", Section)
-    source_by_key = {_chapter_key(item.title): item for item in source_sections if _chapter_key(item.title)}
-    reference_by_key = {_chapter_key(item.title): item for item in reference_sections if _chapter_key(item.title)}
+    source_by_key = {
+        _chapter_key(item.title): item for item in source_sections if _chapter_key(item.title)
+    }
+    reference_by_key = {
+        _chapter_key(item.title): item for item in reference_sections if _chapter_key(item.title)
+    }
     alignments = [
         ReferenceAlignment(source_by_key[key].id, reference_by_key[key].id, key, 0.98)
         for key in sorted(source_by_key.keys() & reference_by_key.keys(), key=_chapter_sort)
@@ -81,7 +92,12 @@ def simplify_reference_outputs(root: Path, formats: set[str]) -> tuple[int, list
     if not segments:
         raise RuntimeError("No reference translation. Run reference-import first.")
     converter = OpenCC("tw2sp")
-    records = [LocaleAdaptation(item.id, item.raw or item.text, converter.convert(item.raw or item.text), "opencc-tw2sp") for item in segments]
+    records = [
+        LocaleAdaptation(
+            item.id, item.raw or item.text, converter.convert(item.raw or item.text), "opencc-tw2sp"
+        )
+        for item in segments
+    ]
     write_jsonl(directory / "segments.zh-CN.jsonl", records)
     from .exporters import render_markdown, write_epub
 
@@ -89,7 +105,9 @@ def simplify_reference_outputs(root: Path, formats: set[str]) -> tuple[int, list
     converted_sections = [replace(item, title=converter.convert(item.title)) for item in sections]
     project_data = read_json(root / "project.json")
     project = Project(**project_data)
-    reference_project = replace(project, name=f"{project.name} — Mainland Chinese Reference", target_language="zh-CN")
+    reference_project = replace(
+        project, name=f"{project.name} — Mainland Chinese Reference", target_language="zh-CN"
+    )
     reference_data = read_json(directory / "document.json")
     credit = str(reference_data.get("credit", ""))
     provenance = {
@@ -113,8 +131,13 @@ def simplify_reference_outputs(root: Path, formats: set[str]) -> tuple[int, list
     if "epub" in formats:
         path = root / "output" / "reference-zh-CN.epub"
         write_epub(
-            path, reference_project, converted_sections, segments, translated,
-            "translated", provenance,
+            path,
+            reference_project,
+            converted_sections,
+            segments,
+            translated,
+            "translated",
+            provenance,
         )
         paths.append(path)
     return len(records), paths
@@ -126,12 +149,16 @@ def reference_context(root: Path, source_segments: list[Segment]) -> list[str]:
         return []
     directory = root / STATE / REFERENCE
     paths = [
-        root / STATE / "segments.jsonl", directory / "sections.jsonl",
-        directory / "segments.jsonl", directory / "alignments.jsonl",
+        root / STATE / "segments.jsonl",
+        directory / "sections.jsonl",
+        directory / "segments.jsonl",
+        directory / "alignments.jsonl",
         directory / "segments.zh-CN.jsonl",
     ]
     stamps = tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
-    source_by_section, reference_by_source, adaptations = _reference_index(str(root.resolve()), stamps)
+    source_by_section, reference_by_source, adaptations = _reference_index(
+        str(root.resolve()), stamps
+    )
     source_all = source_by_section.get(source_segments[0].section_id, [])
     reference_all = reference_by_source.get(source_segments[0].section_id, [])
     if not source_all or not reference_all:

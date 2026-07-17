@@ -47,8 +47,8 @@ def quality_issues(
                     "warning",
                 )
             )
-        source_numbers = _numbers(segment.text)
-        target_numbers = _numbers(output)
+        source_numbers = _numeric_anchors(segment.text)
+        target_numbers = _numeric_anchors(output)
         if source_numbers != target_numbers:
             issues.append(
                 _issue(
@@ -109,6 +109,61 @@ def _numbers(text: str) -> list[str]:
         text,
     )
     return sorted(re.sub(r"[^\d.]", "", value) for value in values)
+
+
+_MONTH_PATTERNS = (
+    (r"jan(?:uary)?", 1),
+    (r"feb(?:ruary)?", 2),
+    (r"mar(?:ch)?", 3),
+    (r"apr(?:il)?", 4),
+    (r"may", 5),
+    (r"jun(?:e)?", 6),
+    (r"jul(?:y)?", 7),
+    (r"aug(?:ust)?", 8),
+    (r"sep(?:t(?:ember)?)?", 9),
+    (r"oct(?:ober)?", 10),
+    (r"nov(?:ember)?", 11),
+    (r"dec(?:ember)?", 12),
+)
+_ZH_MONTHS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+    "十一": 11,
+    "十二": 12,
+}
+
+
+def _numeric_anchors(text: str) -> list[str]:
+    """Canonicalize explicit numbers plus semantically numeric calendar months."""
+    anchors = _numbers(text)
+    numeric_months = [
+        int(match.group(1)) for match in re.finditer(r"(?<!\d)(1[0-2]|0?[1-9])\s*月", text)
+    ]
+    for month in numeric_months:
+        value = str(month)
+        if value in anchors:
+            anchors.remove(value)
+        anchors.append(f"month:{month}")
+    for word, month in _ZH_MONTHS.items():
+        if re.search(rf"(?<![一二三四五六七八九十]){word}月", text):
+            anchors.append(f"month:{month}")
+    lowered = text.casefold()
+    for pattern, month in _MONTH_PATTERNS:
+        date_pattern = (
+            rf"(?:\b{pattern}\b\.?\s+(?:of\s+)?\d{{4}}"
+            rf"|\d{{4}}\s+\b{pattern}\b\.?)"
+        )
+        if re.search(date_pattern, lowered):
+            anchors.append(f"month:{month}")
+    return sorted(anchors)
 
 
 def _acronyms(text: str) -> list[str]:

@@ -14,16 +14,27 @@ from .models import Project, Section, Segment
 
 
 def render_markdown(
-    sections: list[Section], segments: list[Segment], translated: dict[str, str], content: str,
+    sections: list[Section],
+    segments: list[Segment],
+    translated: dict[str, str],
+    content: str,
     provenance: dict[str, str] | None = None,
+    translated_titles: dict[str, str] | None = None,
 ) -> str:
+    translated_titles = translated_titles or {}
     section_map = {section.id: section for section in sections}
     lines: list[str] = _markdown_provenance(provenance) if provenance else []
     previous = None
     for segment in segments:
         if segment.section_id != previous:
             section = section_map[segment.section_id]
-            lines.extend([f"{'#' * section.level} {section.title}", ""])
+            target_title = translated_titles.get(section.id, section.title)
+            heading = (
+                target_title
+                if content == "translated" or target_title == section.title
+                else f"{section.title} / {target_title}"
+            )
+            lines.extend([f"{'#' * section.level} {heading}", ""])
             previous = segment.section_id
         target = translated[segment.id]
         if content == "translated":
@@ -41,11 +52,14 @@ def write_epub(
     translated: dict[str, str],
     content: str,
     provenance: dict[str, str] | None = None,
+    translated_titles: dict[str, str] | None = None,
 ) -> None:
+    translated_titles = translated_titles or {}
     book = epub.EpubBook()
     suffix = "Bilingual" if content == "bilingual" else "Translation"
     book.set_identifier(f"{project.id}-{content}")
-    book.set_title(f"{project.name} — {suffix}")
+    display_title = provenance.get("title", project.name) if provenance else project.name
+    book.set_title(f"{display_title} — {suffix}")
     book.set_language(project.target_language)
     if provenance:
         translator = provenance.get("translator")
@@ -55,11 +69,15 @@ def write_epub(
             book.add_metadata("DC", "source", provenance["source_title"])
         if provenance.get("reference_translation"):
             book.add_metadata(
-                "DC", "contributor", provenance["reference_translation"],
+                "DC",
+                "contributor",
+                provenance["reference_translation"],
                 {"role": "translation-reference"},
             )
     css = epub.EpubItem(
-        uid="style", file_name="style/contextweaver.css", media_type="text/css",
+        uid="style",
+        file_name="style/contextweaver.css",
+        media_type="text/css",
         content=_CSS.encode("utf-8"),
     )
     book.add_item(css)
@@ -69,7 +87,8 @@ def write_epub(
     chapters: list[epub.EpubHtml] = []
     if provenance:
         colophon = epub.EpubHtml(
-            title="Translation provenance", file_name="translation-provenance.xhtml",
+            title="Translation provenance",
+            file_name="translation-provenance.xhtml",
             lang=project.target_language,
         )
         colophon.content = _epub_provenance(provenance)
@@ -81,19 +100,36 @@ def write_epub(
         section_segments = by_section.get(section.id, [])
         if not section_segments:
             continue
-        body = [f"<h1>{html.escape(section.title)}</h1>"]
+        target_title = translated_titles.get(section.id, section.title)
+        body = [f"<h1>{html.escape(target_title)}</h1>"]
+        if content == "bilingual" and target_title != section.title:
+            body.append(
+                '<p class="source-title" lang="'
+                + html.escape(project.source_language)
+                + '">'
+                + html.escape(section.title)
+                + "</p>"
+            )
         for segment in section_segments:
             target_html = renderer.render(_safe_epub_markdown(translated[segment.id]))
             if content == "bilingual":
                 source_html = renderer.render(_safe_epub_markdown(segment.raw or segment.text))
-                body.extend([
-                    '<section class="source" lang="' + html.escape(project.source_language) + '">',
-                    source_html, "</section>", '<section class="target">', target_html, "</section>",
-                ])
+                body.extend(
+                    [
+                        '<section class="source" lang="'
+                        + html.escape(project.source_language)
+                        + '">',
+                        source_html,
+                        "</section>",
+                        '<section class="target">',
+                        target_html,
+                        "</section>",
+                    ]
+                )
             else:
                 body.append(target_html)
         chapter = epub.EpubHtml(
-            title=section.title,
+            title=target_title,
             file_name=f"section-{section.ordinal:04d}.xhtml",
             lang=project.target_language,
         )
@@ -113,12 +149,22 @@ def write_epub(
 
 def _safe_epub_markdown(value: str) -> str:
     """Replace unresolved source images with explicit text placeholders."""
-    return re.sub(r"!\[([^]]*)\]\([^)]+\)", lambda match: f"*[Image: {match.group(1) or 'unlabeled'}]*", value)
+    return re.sub(
+        r"!\[([^]]*)\]\([^)]+\)", lambda match: f"*[Image: {match.group(1) or 'unlabeled'}]*", value
+    )
 
 
 def _markdown_provenance(provenance: dict[str, str]) -> list[str]:
     lines = ["---"]
-    for key in ("title", "source_title", "source_language", "target_language", "translator", "reference_translation", "fidelity_note"):
+    for key in (
+        "title",
+        "source_title",
+        "source_language",
+        "target_language",
+        "translator",
+        "reference_translation",
+        "fidelity_note",
+    ):
         value = provenance.get(key)
         if value:
             lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
@@ -127,12 +173,15 @@ def _markdown_provenance(provenance: dict[str, str]) -> list[str]:
 
 def _epub_provenance(provenance: dict[str, str]) -> str:
     labels = {
-        "source_title": "Source", "translator": "Translator",
-        "reference_translation": "Translation reference", "fidelity_note": "Fidelity policy",
+        "source_title": "Source",
+        "translator": "Translator",
+        "reference_translation": "Translation reference",
+        "fidelity_note": "Fidelity policy",
     }
     rows = [
         f"<dt>{html.escape(labels[key])}</dt><dd>{html.escape(provenance[key])}</dd>"
-        for key in labels if provenance.get(key)
+        for key in labels
+        if provenance.get(key)
     ]
     return "<h1>Translation provenance</h1><dl>" + "".join(rows) + "</dl>"
 

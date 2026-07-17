@@ -44,14 +44,18 @@ def summarize_project(
         digest = _digest(scoped, strategy)
         previous = active.get(section.id)
         if (
-            not refresh and previous and previous.source_digest == digest
-            and previous.adapter == adapter.name and previous.model == adapter.model
+            not refresh
+            and previous
+            and previous.source_digest == digest
+            and previous.adapter == adapter.name
+            and previous.model == adapter.model
         ):
             skipped += 1
             continue
         evidence = _evidence(scoped, strategy)
         payload = {
-            "project": project.to_dict(), "section": section.to_dict(),
+            "project": project.to_dict(),
+            "section": section.to_dict(),
             "translation_strategy": strategy,
             "evidence": [{"segment_id": item.id, "source": item.text} for item in evidence],
         }
@@ -68,10 +72,16 @@ def summarize_project(
         revision = previous.revision + 1 if previous else 1
         record = SectionSummary(
             stable_id("summary", section.id, digest, adapter.name, adapter.model, revision),
-            section.id, digest, summary, list(decision.key_points),
-            list(decision.evidence_segment_ids), adapter.name, adapter.model,
+            section.id,
+            digest,
+            summary,
+            list(decision.key_points),
+            list(decision.evidence_segment_ids),
+            adapter.name,
+            adapter.model,
             datetime.now(timezone.utc).isoformat(),
-            max(0.0, min(1.0, float(decision.confidence))), revision,
+            max(0.0, min(1.0, float(decision.confidence))),
+            revision,
             previous.id if previous else None,
         )
         append_jsonl(root / STATE / "section_summaries.jsonl", record)
@@ -85,10 +95,15 @@ def summarize_project(
                 )
             ambiguity = AmbiguityRecord(
                 stable_id(
-                    "ambiguity", section.id, item.category, item.description,
+                    "ambiguity",
+                    section.id,
+                    item.category,
+                    item.description,
                     *sorted(item.evidence_segment_ids),
                 ),
-                section.id, item.category, item.description,
+                section.id,
+                item.category,
+                item.description,
                 list(item.evidence_segment_ids),
                 max(0.0, min(1.0, float(item.confidence))),
             )
@@ -136,19 +151,23 @@ def _evidence(
     return selected
 
 
-def _write_notes(
-    root: Path, sections: list[Section], active: dict[str, SectionSummary]
-) -> None:
+def _write_notes(root: Path, sections: list[Section], active: dict[str, SectionSummary]) -> None:
     lines = ["# Section summaries", "", "> Generated automatically; human editing is optional.", ""]
     for section in sections:
         summary = active.get(section.id)
         if summary is None:
             continue
-        lines.extend([
-            f"## {section.title}", "", summary.summary, "",
-            f"- Confidence: {summary.confidence}",
-            f"- Evidence: {', '.join(summary.evidence_segment_ids)}", "",
-        ])
+        lines.extend(
+            [
+                f"## {section.title}",
+                "",
+                summary.summary,
+                "",
+                f"- Confidence: {summary.confidence}",
+                f"- Evidence: {', '.join(summary.evidence_segment_ids)}",
+                "",
+            ]
+        )
     path = root / "notes" / "section_summaries.md"
     temporary = path.with_suffix(".md.tmp")
     temporary.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")

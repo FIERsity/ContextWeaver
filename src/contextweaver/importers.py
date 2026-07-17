@@ -42,9 +42,16 @@ def _read_docx(path: Path) -> ImportedText:
     output: list[str] = []
     for block in document.iter_inner_content():
         if isinstance(block, Table):
-            rows = [[cell.text.replace("\n", " ").strip() for cell in row.cells] for row in block.rows]
+            rows = [
+                [cell.text.replace("\n", " ").strip() for cell in row.cells] for row in block.rows
+            ]
             if rows:
-                output.extend(["| " + " | ".join(rows[0]) + " |", "| " + " | ".join("---" for _ in rows[0]) + " |"])
+                output.extend(
+                    [
+                        "| " + " | ".join(rows[0]) + " |",
+                        "| " + " | ".join("---" for _ in rows[0]) + " |",
+                    ]
+                )
                 output.extend("| " + " | ".join(row) + " |" for row in rows[1:])
             continue
         paragraph = block
@@ -85,8 +92,13 @@ def _read_epub(path: Path) -> ImportedText:
     title = title_meta[0][0] if title_meta else path.stem
     chunks: list[str] = []
     report: dict[str, Any] = {
-        "source_format": "epub", "spine_documents": 0, "paragraphs": 0,
-        "headings": 0, "images": 0, "links": 0, "footnote_links": 0,
+        "source_format": "epub",
+        "spine_documents": 0,
+        "paragraphs": 0,
+        "headings": 0,
+        "images": 0,
+        "links": 0,
+        "footnote_links": 0,
         "warnings": [],
     }
     spine_items = [book.get_item_with_id(item_id) for item_id, _ in book.spine]
@@ -100,9 +112,13 @@ def _read_epub(path: Path) -> ImportedText:
         report["headings"] += len(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
         report["images"] += len(soup.find_all("img"))
         report["links"] += len(soup.find_all("a"))
-        report["footnote_links"] += len(soup.select('a[epub\\:type~="noteref"], a[role="doc-noteref"], a.footnoteup'))
+        report["footnote_links"] += len(
+            soup.select('a[epub\\:type~="noteref"], a[role="doc-noteref"], a.footnoteup')
+        )
         chapter_number = ""
-        for node in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "li", "img"]):
+        for node in soup.find_all(
+            ["h1", "h2", "h3", "h4", "h5", "h6", "p", "blockquote", "li", "img"]
+        ):
             text = " ".join(node.get_text(" ", strip=True).split())
             classes = set(node.get("class") or [])
             if node.name == "img":
@@ -127,9 +143,13 @@ def _read_epub(path: Path) -> ImportedText:
             else:
                 chunks.append(_html_inline_to_markdown(node))
     if report["images"]:
-        report["warnings"].append("Images are preserved as Markdown references but binary assets are not copied yet")
+        report["warnings"].append(
+            "Images are preserved as Markdown references but binary assets are not copied yet"
+        )
     if report["links"]:
-        report["warnings"].append("Links are preserved where they occur inside selected text blocks")
+        report["warnings"].append(
+            "Links are preserved where they occur inside selected text blocks"
+        )
     if report["footnote_links"]:
         report["warnings"].append("EPUB footnote backlinks require manual fidelity review")
     return ImportedText("\n\n".join(chunks) + "\n", title, "epub", report)

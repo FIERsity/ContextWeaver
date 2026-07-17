@@ -44,11 +44,15 @@ class HeuristicReviewAdapter(ReviewAdapter):
         decisions = []
         for segment, record in zip(packet.source_segments, translations, strict=True):
             if "disempowered" in segment.text.casefold() and "失去了力量" in record.translated_text:
-                decisions.append(ReviewDecision(
-                    "revised", ["concept_role"],
-                    "In this political-economic context, disempowered concerns power rather than vague force.",
-                    0.98, record.translated_text.replace("失去了力量", "权力遭到削弱"),
-                ))
+                decisions.append(
+                    ReviewDecision(
+                        "revised",
+                        ["concept_role"],
+                        "In this political-economic context, disempowered concerns power rather than vague force.",
+                        0.98,
+                        record.translated_text.replace("失去了力量", "权力遭到削弱"),
+                    )
+                )
             else:
                 decisions.append(ReviewDecision("pass", [], "No deterministic issue found.", 0.6))
         return decisions
@@ -110,8 +114,12 @@ class OpenAIReviewAdapter(ReviewAdapter):
                                 "items": {
                                     "type": "string",
                                     "enum": [
-                                        "semantic_fidelity", "concept_role", "terminology",
-                                        "natural_zh", "rhetoric", "format",
+                                        "semantic_fidelity",
+                                        "concept_role",
+                                        "terminology",
+                                        "natural_zh",
+                                        "rhetoric",
+                                        "format",
                                     ],
                                 },
                             },
@@ -120,7 +128,10 @@ class OpenAIReviewAdapter(ReviewAdapter):
                             "revised_translation": {"type": ["string", "null"]},
                         },
                         "required": [
-                            "verdict", "categories", "rationale", "confidence",
+                            "verdict",
+                            "categories",
+                            "rationale",
+                            "confidence",
                             "revised_translation",
                         ],
                         "additionalProperties": False,
@@ -132,7 +143,8 @@ class OpenAIReviewAdapter(ReviewAdapter):
         }
         payload = _packet_payload(packet)
         payload["translations"] = [
-            {"segment_id": item.segment_id, "translation": item.translated_text} for item in translations
+            {"segment_id": item.segment_id, "translation": item.translated_text}
+            for item in translations
         ]
         for attempt in range(self.max_retries + 1):
             try:
@@ -144,17 +156,31 @@ class OpenAIReviewAdapter(ReviewAdapter):
                         "Return pass when no material change is needed. Return revise only with a complete replacement translation; never add facts or commentary to the translation."
                     ),
                     input=json.dumps(payload, ensure_ascii=False),
-                    text={"format": {"type": "json_schema", "name": "translation_reviews", "strict": True, "schema": schema}},
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "translation_reviews",
+                            "strict": True,
+                            "schema": schema,
+                        }
+                    },
                 )
                 raw = json.loads(response.output_text)["reviews"]
-                return [ReviewDecision(
-                    "revised" if item["verdict"] == "revise" else "pass",
-                    list(item["categories"]), str(item["rationale"]), float(item["confidence"]),
-                    item["revised_translation"],
-                ) for item in raw]
+                return [
+                    ReviewDecision(
+                        "revised" if item["verdict"] == "revise" else "pass",
+                        list(item["categories"]),
+                        str(item["rationale"]),
+                        float(item["confidence"]),
+                        item["revised_translation"],
+                    )
+                    for item in raw
+                ]
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):
-                    raise RuntimeError(f"OpenAI review failed after {attempt + 1} attempt(s): {exc}") from exc
+                    raise RuntimeError(
+                        f"OpenAI review failed after {attempt + 1} attempt(s): {exc}"
+                    ) from exc
                 self.sleep(_retry_after(exc) or min(2**attempt, 30))
         raise AssertionError("unreachable")
 
@@ -224,8 +250,16 @@ class OpenAITranslationAdapter(TranslationAdapter):
         payload = _packet_payload(packet)
         schema = {
             "type": "object",
-            "properties": {"translations": {"type": "array", "items": {"type": "string"}, "minItems": len(packet.source_segments), "maxItems": len(packet.source_segments)}},
-            "required": ["translations"], "additionalProperties": False,
+            "properties": {
+                "translations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": len(packet.source_segments),
+                    "maxItems": len(packet.source_segments),
+                }
+            },
+            "required": ["translations"],
+            "additionalProperties": False,
         }
         for attempt in range(self.max_retries + 1):
             try:
@@ -233,13 +267,22 @@ class OpenAITranslationAdapter(TranslationAdapter):
                     model=self.model,
                     instructions="Translate faithfully into the project's target language. The source items are the sole semantic authority: never add, omit, soften, strengthen, or change a claim to follow a reference translation, and resolve every conflict in favor of the source. Preserve facts, qualifications, argument relations, tone, and important rhetoric. Preserve Markdown structure and inline markup. Return exactly one translation per source item. A human_reference may be provided only as approximate consultation evidence for meaning and terminology; do not assume paragraph alignment or copy regional wording blindly. When targeting zh-CN, write idiomatic Mainland Simplified Chinese: you may reorder clauses, split or combine sentences, restore natural subjects and transitions, and reshape punctuation when meaning and rhetorical force remain unchanged. Avoid English-shaped syntax and sentence-by-sentence calques. Use adjacent context only for disambiguation. Record no commentary.",
                     input=json.dumps(payload, ensure_ascii=False),
-                    text={"format": {"type": "json_schema", "name": "segment_translations", "strict": True, "schema": schema}},
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "segment_translations",
+                            "strict": True,
+                            "schema": schema,
+                        }
+                    },
                 )
                 result = json.loads(response.output_text)["translations"]
                 return [str(item) for item in result]
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):
-                    raise RuntimeError(f"OpenAI translation failed after {attempt + 1} attempt(s): {exc}") from exc
+                    raise RuntimeError(
+                        f"OpenAI translation failed after {attempt + 1} attempt(s): {exc}"
+                    ) from exc
                 delay = _retry_after(exc) or min(2**attempt, 30)
                 self.sleep(delay)
         raise AssertionError("unreachable")
@@ -255,10 +298,13 @@ class OpenAITranslationAdapter(TranslationAdapter):
 
 def _packet_payload(packet: ContextPacket) -> dict[str, Any]:
     return {
-        "source": [{"id": item.id, "markdown": item.raw or item.text} for item in packet.source_segments],
+        "source": [
+            {"id": item.id, "markdown": item.raw or item.text} for item in packet.source_segments
+        ],
         "source_language": packet.source_language,
         "target_language": packet.target_language,
-        "previous": packet.previous_text, "next": packet.next_text,
+        "previous": packet.previous_text,
+        "next": packet.next_text,
         "section_summary": packet.section_summary,
         "glossary": [item.to_dict() for item in packet.glossary if item.status == "approved"],
         "entities": [item.to_dict() for item in packet.entities if item.status == "approved"],
@@ -269,7 +315,11 @@ def _packet_payload(packet: ContextPacket) -> dict[str, Any]:
 
 def _retryable(exc: Exception) -> bool:
     status = getattr(exc, "status_code", None)
-    return status in {408, 409, 429} or (isinstance(status, int) and status >= 500) or isinstance(exc, (TimeoutError, ConnectionError))
+    return (
+        status in {408, 409, 429}
+        or (isinstance(status, int) and status >= 500)
+        or isinstance(exc, (TimeoutError, ConnectionError))
+    )
 
 
 def _retry_after(exc: Exception) -> float | None:

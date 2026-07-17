@@ -56,4 +56,3 @@ def _atomic_text(path: Path, content: str) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(content, encoding="utf-8", newline="\n")
     temporary.replace(path)
-

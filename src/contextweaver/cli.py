@@ -30,12 +30,14 @@ from .pipeline import (
     export_selected,
     import_document,
     import_translation_draft,
+    import_section_title_draft,
     init_project,
     migrate_project,
     project_status,
     replace_document,
     segment_document,
     translate_project,
+    translate_section_titles,
     validate_project,
 )
 
@@ -133,6 +135,24 @@ def parser() -> argparse.ArgumentParser:
     draft.add_argument("--adapter", default="codex-agent")
     draft.add_argument("--model", required=True)
     draft.add_argument("--reason", required=True)
+    titles = commands.add_parser(
+        "translate-titles", help="Translate missing Section titles without changing Section IDs"
+    )
+    titles.add_argument("project", type=Path)
+    titles.add_argument("--adapter", choices=["mock", "openai"], default="mock")
+    titles.add_argument("--model", default="gpt-5.6-sol")
+    titles.add_argument("--requests-per-minute", type=float, default=60)
+    titles.add_argument("--section", action="append", default=[])
+    titles.add_argument("--refresh", action="store_true")
+    titles.add_argument("--reason", default="section-title-translation")
+    title_draft = commands.add_parser(
+        "section-title-import", help="Import Agent-produced Section title translations"
+    )
+    title_draft.add_argument("project", type=Path)
+    title_draft.add_argument("draft", type=Path)
+    title_draft.add_argument("--adapter", default="codex-agent")
+    title_draft.add_argument("--model", required=True)
+    title_draft.add_argument("--reason", required=True)
     analyze = commands.add_parser(
         "analyze", help="Automatically profile the work and create a translation strategy"
     )
@@ -302,6 +322,27 @@ def run(argv: list[str] | None = None) -> int:
                 args.project, args.draft, args.adapter, args.model, args.reason
             )
             LOG.info("Imported %d translation revision(s)", count)
+        elif args.command == "translate-titles":
+            adapter = (
+                MockTranslationAdapter()
+                if args.adapter == "mock"
+                else OpenAITranslationAdapter(
+                    model=args.model, requests_per_minute=args.requests_per_minute
+                )
+            )
+            written, skipped = translate_section_titles(
+                args.project,
+                adapter,
+                set(args.section) or None,
+                args.reason,
+                args.refresh,
+            )
+            LOG.info("Translated %d Section title(s); skipped %d", written, skipped)
+        elif args.command == "section-title-import":
+            count = import_section_title_draft(
+                args.project, args.draft, args.adapter, args.model, args.reason
+            )
+            LOG.info("Imported %d Section title revision(s)", count)
         elif args.command == "analyze":
             analyzer = (
                 HeuristicBookAnalysisAdapter()
@@ -424,6 +465,14 @@ def run(argv: list[str] | None = None) -> int:
                 else OpenAITranslationAdapter(
                     model=args.model, requests_per_minute=args.requests_per_minute
                 )
+            )
+            title_written, title_skipped = translate_section_titles(
+                args.project, adapter, reason="agent-first-auto"
+            )
+            LOG.info(
+                "Translated %d Section title(s); skipped %d completed title(s)",
+                title_written,
+                title_skipped,
             )
             written, skipped = translate_project(
                 args.project, adapter, reason="agent-first-auto", max_units=args.max_units

@@ -32,7 +32,19 @@ def parse_markdown(source: str) -> list[MarkdownBlock]:
         start, end = token.map
         if start < consumed_until:
             continue
-        if token.type in {"heading_open", "paragraph_open", "bullet_list_open", "ordered_list_open", "blockquote_open", "fence", "code_block", "table_open", "footnote_block_open", "html_block", "hr"}:
+        if token.type in {
+            "heading_open",
+            "paragraph_open",
+            "bullet_list_open",
+            "ordered_list_open",
+            "blockquote_open",
+            "fence",
+            "code_block",
+            "table_open",
+            "footnote_block_open",
+            "html_block",
+            "hr",
+        }:
             ranges.append((start, end, token.type, token))
             consumed_until = end
     covered = {line for start, end, _, _ in ranges for line in range(start, end)}
@@ -48,10 +60,17 @@ def parse_markdown(source: str) -> list[MarkdownBlock]:
         kind = _kind(token_type, raw)
         text = _plain(raw, kind)
         level = int(getattr(token, "tag", "h0")[1:]) if token_type == "heading_open" else 0
-        blocks.append(MarkdownBlock(
-            kind, raw, text, level, text if kind == "heading" else "", f"lines:{start + 1}-{end}",
-            tuple(format_signature(raw)),
-        ))
+        blocks.append(
+            MarkdownBlock(
+                kind,
+                raw,
+                text,
+                level,
+                text if kind == "heading" else "",
+                f"lines:{start + 1}-{end}",
+                tuple(format_signature(raw)),
+            )
+        )
     return blocks
 
 
@@ -82,9 +101,16 @@ def format_signature(raw: str) -> list[str]:
 
 def _kind(token_type: str, raw: str) -> str:
     return {
-        "heading_open": "heading", "bullet_list_open": "list", "ordered_list_open": "list",
-        "blockquote_open": "blockquote", "fence": "code", "code_block": "code",
-        "table_open": "table", "footnote_block_open": "footnote", "html_block": "html", "hr": "thematic_break",
+        "heading_open": "heading",
+        "bullet_list_open": "list",
+        "ordered_list_open": "list",
+        "blockquote_open": "blockquote",
+        "fence": "code",
+        "code_block": "code",
+        "table_open": "table",
+        "footnote_block_open": "footnote",
+        "html_block": "html",
+        "hr": "thematic_break",
     }.get(token_type, "footnote" if raw.lstrip().startswith("[^") else "paragraph")
 
 

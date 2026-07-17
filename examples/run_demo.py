@@ -15,6 +15,7 @@ from contextweaver.pipeline import (
     init_project,
     segment_document,
     translate_project,
+    translate_section_titles,
     validate_project,
 )
 from contextweaver.review import review_project
@@ -34,6 +35,7 @@ sections, segments, units = segment_document(PROJECT, unit_size=2)
 brief = analyze_project(PROJECT, HeuristicBookAnalysisAdapter())
 summary_count, ambiguity_count, _ = summarize_project(PROJECT, HeuristicSummaryAdapter())
 written, _ = translate_project(PROJECT, MockTranslationAdapter())
+translate_section_titles(PROJECT, MockTranslationAdapter())
 reviewed, revised, _ = review_project(PROJECT, HeuristicReviewAdapter())
 scope_reviewer = HeuristicCoherenceReviewAdapter()
 section_reviewed, section_revised, _ = review_sections(PROJECT, scope_reviewer)

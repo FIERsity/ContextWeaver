@@ -57,13 +57,20 @@ class HeuristicSummaryAdapter(SummaryAdapter):
         ambiguities = []
         for item in evidence:
             if "[?]" in item["source"] or "[unclear]" in item["source"].casefold():
-                ambiguities.append(AmbiguityDecision(
-                    "source", "Source contains an explicit uncertainty marker.",
-                    [item["segment_id"]], 0.95,
-                ))
+                ambiguities.append(
+                    AmbiguityDecision(
+                        "source",
+                        "Source contains an explicit uncertainty marker.",
+                        [item["segment_id"]],
+                        0.95,
+                    )
+                )
         return SummaryDecision(
-            summary, [_truncate(item["source"], 240) for item in chosen],
-            [item["segment_id"] for item in chosen], 0.6, ambiguities,
+            summary,
+            [_truncate(item["source"], 240) for item in chosen],
+            [item["segment_id"] for item in chosen],
+            0.6,
+            ambiguities,
         )
 
 
@@ -110,18 +117,42 @@ class OpenAISummaryAdapter(SummaryAdapter):
                 "key_points": {"type": "array", "items": {"type": "string"}},
                 "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
                 "confidence": {"type": "number"},
-                "ambiguities": {"type": "array", "items": {"type": "object", "properties": {
-                    "category": {"type": "string", "enum": [
-                        "reference", "term", "entity", "source", "rhetoric", "other"
-                    ]},
-                    "description": {"type": "string"},
-                    "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
-                    "confidence": {"type": "number"},
-                }, "required": ["category", "description", "evidence_segment_ids", "confidence"],
-                    "additionalProperties": False}},
+                "ambiguities": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "reference",
+                                    "term",
+                                    "entity",
+                                    "source",
+                                    "rhetoric",
+                                    "other",
+                                ],
+                            },
+                            "description": {"type": "string"},
+                            "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
+                            "confidence": {"type": "number"},
+                        },
+                        "required": [
+                            "category",
+                            "description",
+                            "evidence_segment_ids",
+                            "confidence",
+                        ],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": [
-                "summary", "key_points", "evidence_segment_ids", "confidence", "ambiguities"
+                "summary",
+                "key_points",
+                "evidence_segment_ids",
+                "confidence",
+                "ambiguities",
             ],
             "additionalProperties": False,
         }
@@ -136,16 +167,30 @@ class OpenAISummaryAdapter(SummaryAdapter):
                         "Record genuine unresolved references, terms, entities, source defects, or rhetoric as ambiguities; do not invent uncertainty and do not require human approval."
                     ),
                     input=json.dumps(payload, ensure_ascii=False),
-                    text={"format": {"type": "json_schema", "name": "section_summary", "strict": True, "schema": schema}},
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "section_summary",
+                            "strict": True,
+                            "schema": schema,
+                        }
+                    },
                 )
                 raw = json.loads(response.output_text)
                 return SummaryDecision(
-                    str(raw["summary"]), list(raw["key_points"]),
-                    list(raw["evidence_segment_ids"]), float(raw["confidence"]),
-                    [AmbiguityDecision(
-                        str(item["category"]), str(item["description"]),
-                        list(item["evidence_segment_ids"]), float(item["confidence"]),
-                    ) for item in raw["ambiguities"]],
+                    str(raw["summary"]),
+                    list(raw["key_points"]),
+                    list(raw["evidence_segment_ids"]),
+                    float(raw["confidence"]),
+                    [
+                        AmbiguityDecision(
+                            str(item["category"]),
+                            str(item["description"]),
+                            list(item["evidence_segment_ids"]),
+                            float(item["confidence"]),
+                        )
+                        for item in raw["ambiguities"]
+                    ],
                 )
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):

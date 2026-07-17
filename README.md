@@ -18,6 +18,8 @@ Version 0.7 adds resumable Section summaries and conservative ambiguity records.
 
 Version 0.8 adds a machine-readable v1 readiness audit and convergent autonomous review. `auto` repeats Segment, Section, and book review until a round produces no new revisions, then validates, exports, and records whether every v1 completion gate is actually satisfied.
 
+Version 0.9 adds revision-tracked Section-title translation, localized Markdown/EPUB headings and navigation, source-title integrity checks, coherence invalidation after title edits, structural image passthrough, evidence auditing, and cost-bounded TranslationUnit batches.
+
 ## Quick start
 
 Python 3.11 or newer is required.
@@ -35,6 +37,7 @@ contextweaver segment my-book --unit-size 2
 contextweaver analyze my-book --adapter heuristic
 contextweaver summarize my-book --adapter heuristic
 contextweaver extract-knowledge my-book
+contextweaver translate-titles my-book --adapter mock
 contextweaver reference-import my-book human-translation.epub --language zh-TW
 contextweaver reference-simplify my-book --format all
 contextweaver translate my-book --adapter mock
@@ -143,6 +146,18 @@ contextweaver export my-book --format all --content all --segment seg_...
 
 Each draft row contains only `segment_id` and `translated_text`. Scoped validation/export allows a unit or chapter pilot to complete without treating the rest of the book as translated.
 
+Section headings have a separate append-only revision chain so translated books do not retain English chapter titles or destabilize Section/Segment IDs:
+
+```bash
+contextweaver translate-titles my-book --adapter openai
+contextweaver translate-titles my-book --section sec_... --refresh \
+  --reason chapter-title-style-fix
+contextweaver section-title-import my-book title-draft.jsonl \
+  --adapter codex-agent --model "GPT-5" --reason mainland-title-review
+```
+
+Each title-draft row contains only `section_id` and `translated_title`. Translated Markdown/EPUB uses the current target title; bilingual output preserves both source and target titles. Title revisions invalidate affected Section/book coherence fingerprints.
+
 ## Project data
 
 A generated translation project is intentionally readable:
@@ -159,6 +174,7 @@ my-book/
 │   ├── segments.jsonl
 │   ├── units.jsonl
 │   ├── translations.jsonl
+│   ├── section_titles.jsonl
 │   ├── reviews.jsonl
 │   ├── scope_reviews.jsonl
 │   ├── section_summaries.jsonl
@@ -197,6 +213,8 @@ Image-only Markdown Segments bypass the model through a deterministic structural
 Final exports embed translation provenance in Markdown front matter, EPUB Dublin Core metadata, and a visible EPUB provenance page. The actual Agent/model is credited as translator; a consulted human edition is credited separately as translation reference. The source-language Segment is always authoritative. The locale-adapted reference export explicitly identifies itself as an OpenCC transformation, not a new translation from the original.
 
 Generated structural files are atomically rewritten. Translation records are appended, completed Segment IDs are skipped on later runs, and selective retranslation adds `revision`, `supersedes`, and `reason`. Export is blocked when validation has errors. Importing a different source requires `--replace`. Existing schema-v1 projects can be upgraded with `contextweaver migrate PROJECT`.
+
+Numeric validation compares normalized information rather than raw character spelling: for example, the date forms `May 2023`, `2023年5月`, and `2023年五月` share the same month anchor. This permits natural Chinese date rendering without weakening checks for genuinely missing or invented values.
 
 ## Source layout
 

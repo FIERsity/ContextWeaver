@@ -12,7 +12,7 @@ ContextWeaver reaches v1.0 when it can autonomously turn a supported long-form s
 6. Run three review levels: source-aligned Segment criticism, bounded Section coherence review, and bounded whole-book concept/style review.
 7. Record every automatic review decision, input/output version, evidence scope, confidence, rationale, and model attribution.
 8. Validate complete alignment, formatting, numeric anchors, acronyms, approved terminology, repeated sources, and export integrity without silently waiving errors.
-9. Export translated and bilingual Markdown and EPUB with source, Agent/model, and optional human-reference provenance.
+9. Export translated and bilingual Markdown and EPUB with localized, revision-tracked Section titles plus source, Agent/model, and optional human-reference provenance.
 10. Resume every expensive stage without repeating completed work or overwriting human or Agent edits.
 
 ## Release evidence

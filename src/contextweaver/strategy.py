@@ -41,9 +41,15 @@ class HeuristicBookAnalysisAdapter(BookAnalysisAdapter):
             "history": ("century", "history", "medieval", "revolution"),
             "social science": ("society", "institution", "inequality", "political"),
         }
-        scores = {domain: sum(lowered.count(word) for word in words) for domain, words in signals.items()}
-        domains = [domain for domain, score in sorted(scores.items(), key=lambda item: -item[1]) if score][:3]
-        genre = "long-form nonfiction" if payload["segment_count"] >= 20 else "short-form nonfiction"
+        scores = {
+            domain: sum(lowered.count(word) for word in words) for domain, words in signals.items()
+        }
+        domains = [
+            domain for domain, score in sorted(scores.items(), key=lambda item: -item[1]) if score
+        ][:3]
+        genre = (
+            "long-form nonfiction" if payload["segment_count"] >= 20 else "short-form nonfiction"
+        )
         rules = _concept_rules(payload["concept_evidence"])
         return {
             "genre": genre,
@@ -68,7 +74,9 @@ class OpenAIBookAnalysisAdapter(BookAnalysisAdapter):
 
     name = "openai"
 
-    def __init__(self, model: str = "gpt-5.6-sol", *, client: Any = None, api_key: str | None = None) -> None:
+    def __init__(
+        self, model: str = "gpt-5.6-sol", *, client: Any = None, api_key: str | None = None
+    ) -> None:
         if client is None:
             try:
                 from openai import OpenAI
@@ -91,19 +99,39 @@ class OpenAIBookAnalysisAdapter(BookAnalysisAdapter):
                 "target_style": {"type": "string"},
                 "audience": {"type": "string"},
                 "principles": {"type": "array", "items": {"type": "string"}},
-                "concept_rules": {"type": "array", "items": {
-                    "type": "object",
-                    "properties": {
-                        "source_term": {"type": "string"}, "preferred_rendering": {"type": "string"},
-                        "guidance": {"type": "string"}, "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
-                        "confidence": {"type": "number"},
+                "concept_rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source_term": {"type": "string"},
+                            "preferred_rendering": {"type": "string"},
+                            "guidance": {"type": "string"},
+                            "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
+                            "confidence": {"type": "number"},
+                        },
+                        "required": [
+                            "source_term",
+                            "preferred_rendering",
+                            "guidance",
+                            "evidence_segment_ids",
+                            "confidence",
+                        ],
+                        "additionalProperties": False,
                     },
-                    "required": ["source_term", "preferred_rendering", "guidance", "evidence_segment_ids", "confidence"],
-                    "additionalProperties": False,
-                }},
+                },
                 "confidence": {"type": "number"},
             },
-            "required": ["genre", "domains", "source_style", "target_style", "audience", "principles", "concept_rules", "confidence"],
+            "required": [
+                "genre",
+                "domains",
+                "source_style",
+                "target_style",
+                "audience",
+                "principles",
+                "concept_rules",
+                "confidence",
+            ],
             "additionalProperties": False,
         }
         response = self.client.responses.create(
@@ -114,12 +142,21 @@ class OpenAIBookAnalysisAdapter(BookAnalysisAdapter):
                 "For zh-CN require source-faithful natural Chinese. Human approval is optional: produce a usable autonomous strategy and express uncertainty through confidence."
             ),
             input=json.dumps(payload, ensure_ascii=False),
-            text={"format": {"type": "json_schema", "name": "translation_strategy", "strict": True, "schema": schema}},
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "translation_strategy",
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
         )
         return dict(json.loads(response.output_text))
 
 
-def analyze_project(root: Path, adapter: BookAnalysisAdapter, *, refresh: bool = False) -> dict[str, Any]:
+def analyze_project(
+    root: Path, adapter: BookAnalysisAdapter, *, refresh: bool = False
+) -> dict[str, Any]:
     path = root / STATE / "translation_brief.json"
     if path.exists() and not refresh:
         return read_json(path)
@@ -130,13 +167,19 @@ def analyze_project(root: Path, adapter: BookAnalysisAdapter, *, refresh: bool =
     if not segments:
         raise RuntimeError("No segments. Run segment before analyze.")
     samples = _samples(sections, segments)
-    result = adapter.analyze({
-        "project": project.to_dict(), "source": source.to_dict(),
-        "section_count": len(sections), "segment_count": len(segments), "samples": samples,
-        "concept_evidence": _concept_evidence(segments),
-    })
+    result = adapter.analyze(
+        {
+            "project": project.to_dict(),
+            "source": source.to_dict(),
+            "section_count": len(sections),
+            "segment_count": len(segments),
+            "samples": samples,
+            "concept_evidence": _concept_evidence(segments),
+        }
+    )
     brief = {
-        "schema_version": 1, "project_id": project.id,
+        "schema_version": 1,
+        "project_id": project.id,
         "generated_by": {"adapter": adapter.name, "model": adapter.model},
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "human_review_required": False,
@@ -149,7 +192,9 @@ def analyze_project(root: Path, adapter: BookAnalysisAdapter, *, refresh: bool =
     return brief
 
 
-def _samples(sections: list[Section], segments: list[Segment], limit: int = 48) -> list[dict[str, str]]:
+def _samples(
+    sections: list[Section], segments: list[Segment], limit: int = 48
+) -> list[dict[str, str]]:
     by_section: dict[str, list[Segment]] = {}
     for segment in segments:
         by_section.setdefault(segment.section_id, []).append(segment)
@@ -165,14 +210,38 @@ def _samples(sections: list[Section], segments: list[Segment], limit: int = 48) 
 
 def _concept_rules(samples: list[dict[str, str]]) -> list[dict[str, Any]]:
     candidates = {
-        "power": ("权力（支配或决策语境）；力量/能力（物理或技术语境）", "Distinguish institutional authority from physical or technical capacity."),
-        "capital": ("资本", "Distinguish financial or productive capital from a capital city or uppercase letter."),
-        "labor": ("劳动/劳动力", "Use labor for activity and labor force for the people supplying it."),
-        "progress": ("进步", "Preserve its evaluative and contested role when it is a core argument term."),
-        "productivity": ("生产率", "Prefer the economics term over the looser 生产效率 when measurable output is meant."),
-        "agency": ("能动性/行动能力", "Do not confuse personal agency with an organization or intermediary."),
-        "empowered": ("获得权力/自主权得到增强", "Use the institutional or social sense when participation and control are at stake."),
-        "disempowered": ("权力受到削弱", "Do not weaken a political-economic loss of power into the vague 失去力量."),
+        "power": (
+            "权力（支配或决策语境）；力量/能力（物理或技术语境）",
+            "Distinguish institutional authority from physical or technical capacity.",
+        ),
+        "capital": (
+            "资本",
+            "Distinguish financial or productive capital from a capital city or uppercase letter.",
+        ),
+        "labor": (
+            "劳动/劳动力",
+            "Use labor for activity and labor force for the people supplying it.",
+        ),
+        "progress": (
+            "进步",
+            "Preserve its evaluative and contested role when it is a core argument term.",
+        ),
+        "productivity": (
+            "生产率",
+            "Prefer the economics term over the looser 生产效率 when measurable output is meant.",
+        ),
+        "agency": (
+            "能动性/行动能力",
+            "Do not confuse personal agency with an organization or intermediary.",
+        ),
+        "empowered": (
+            "获得权力/自主权得到增强",
+            "Use the institutional or social sense when participation and control are at stake.",
+        ),
+        "disempowered": (
+            "权力受到削弱",
+            "Do not weaken a political-economic loss of power into the vague 失去力量.",
+        ),
     }
     evidence: dict[str, list[str]] = {term: [] for term in candidates}
     for sample in samples:
@@ -181,14 +250,29 @@ def _concept_rules(samples: list[dict[str, str]]) -> list[dict[str, Any]]:
             if words[term]:
                 evidence[term].append(sample["segment_id"])
     return [
-        {"source_term": term, "preferred_rendering": candidates[term][0], "guidance": candidates[term][1],
-         "evidence_segment_ids": ids[:8], "confidence": round(min(0.9, 0.55 + len(ids) * 0.05), 2)}
-        for term, ids in evidence.items() if ids
+        {
+            "source_term": term,
+            "preferred_rendering": candidates[term][0],
+            "guidance": candidates[term][1],
+            "evidence_segment_ids": ids[:8],
+            "confidence": round(min(0.9, 0.55 + len(ids) * 0.05), 2),
+        }
+        for term, ids in evidence.items()
+        if ids
     ]
 
 
 def _concept_evidence(segments: list[Segment]) -> list[dict[str, str]]:
-    terms = ("power", "capital", "labor", "progress", "productivity", "agency", "empowered", "disempowered")
+    terms = (
+        "power",
+        "capital",
+        "labor",
+        "progress",
+        "productivity",
+        "agency",
+        "empowered",
+        "disempowered",
+    )
     found: list[dict[str, str]] = []
     counts: Counter[str] = Counter()
     for segment in segments:
@@ -204,14 +288,33 @@ def _concept_evidence(segments: list[Segment]) -> list[dict[str, str]]:
 
 
 def _markdown(brief: dict[str, Any]) -> str:
-    lines = ["# Translation brief", "", "> Generated automatically; human editing is optional.", "",
-             f"- Genre: {brief['genre']}", f"- Domains: {', '.join(brief['domains'])}",
-             f"- Source style: {brief['source_style']}", f"- Target style: {brief['target_style']}",
-             f"- Audience: {brief['audience']}", f"- Confidence: {brief['confidence']}", "", "## Principles", ""]
+    lines = [
+        "# Translation brief",
+        "",
+        "> Generated automatically; human editing is optional.",
+        "",
+        f"- Genre: {brief['genre']}",
+        f"- Domains: {', '.join(brief['domains'])}",
+        f"- Source style: {brief['source_style']}",
+        f"- Target style: {brief['target_style']}",
+        f"- Audience: {brief['audience']}",
+        f"- Confidence: {brief['confidence']}",
+        "",
+        "## Principles",
+        "",
+    ]
     lines.extend(f"- {item}" for item in brief["principles"])
     lines.extend(["", "## Concept rules", ""])
     for rule in brief["concept_rules"]:
-        lines.extend([f"### {rule['source_term']}", "", f"- Preferred: {rule['preferred_rendering']}",
-                      f"- Guidance: {rule['guidance']}", f"- Confidence: {rule['confidence']}",
-                      f"- Evidence: {', '.join(rule['evidence_segment_ids'])}", ""])
+        lines.extend(
+            [
+                f"### {rule['source_term']}",
+                "",
+                f"- Preferred: {rule['preferred_rendering']}",
+                f"- Guidance: {rule['guidance']}",
+                f"- Confidence: {rule['confidence']}",
+                f"- Evidence: {', '.join(rule['evidence_segment_ids'])}",
+                "",
+            ]
+        )
     return "\n".join(lines).rstrip() + "\n"

@@ -13,11 +13,12 @@ from .models import (
     ScopeReview,
     Section,
     SectionSummary,
+    SectionTitleRecord,
     Segment,
     TranslationRecord,
     TranslationUnit,
 )
-from .pipeline import STATE, active_translations, stable_id
+from .pipeline import STATE, active_section_titles, active_translations, stable_id
 from .storage import append_jsonl, read_json, read_jsonl
 
 
@@ -39,8 +40,17 @@ def review_sections(
             continue
         _require_complete(scoped, active, f"section {section.id}")
         count, changes, was_skipped = _review_scope(
-            root, adapter, "section", section.id, section.title, scoped,
-            sections, segments, active, units, previous,
+            root,
+            adapter,
+            "section",
+            section.id,
+            section.title,
+            scoped,
+            sections,
+            segments,
+            active,
+            units,
+            previous,
         )
         reviewed += count
         revised += changes
@@ -52,8 +62,17 @@ def review_book(root: Path, adapter: CoherenceReviewAdapter) -> tuple[int, int, 
     sections, segments, active, units, previous = _state(root)
     _require_complete(segments, active, "book")
     return _review_scope(
-        root, adapter, "book", "book", "Complete work", segments,
-        sections, segments, active, units, previous,
+        root,
+        adapter,
+        "book",
+        "book",
+        "Complete work",
+        segments,
+        sections,
+        segments,
+        active,
+        units,
+        previous,
     )
 
 
@@ -73,20 +92,28 @@ def _review_scope(
     review_context = _review_context(root, scoped)
     strategy = review_context["translation_strategy"]
     section_context = review_context["section_summaries"]
+    title_context = review_context["translated_section_titles"]
     ambiguities = review_context["open_ambiguities"]
     input_digest = _digest(scoped, active, review_context)
     if any(
-        item.scope_type == scope_type and item.scope_id == scope_id
-        and item.adapter == adapter.name and item.model == adapter.model
+        item.scope_type == scope_type
+        and item.scope_id == scope_id
+        and item.adapter == adapter.name
+        and item.model == adapter.model
         and input_digest in {item.input_digest, item.output_digest}
         for item in previous
     ):
         return 0, 0, 1
     evidence = _dossier(scope_type, scoped, sections, all_segments, active, strategy)
     payload = {
-        "scope_type": scope_type, "scope_id": scope_id, "title": title,
-        "translation_strategy": strategy, "section_summaries": section_context,
-        "open_ambiguities": ambiguities, "evidence": evidence,
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "title": title,
+        "translation_strategy": strategy,
+        "section_summaries": section_context,
+        "translated_section_titles": title_context,
+        "open_ambiguities": ambiguities,
+        "evidence": evidence,
     }
     decision = adapter.review_scope(payload)
     if decision.verdict not in {"pass", "revised"}:
@@ -115,10 +142,19 @@ def _review_scope(
         revision = previous_record.revision + 1
         record = TranslationRecord(
             stable_id("tr", unit.id, segment.id, adapter.name, adapter.model, revision),
-            unit.id, segment.id, text, adapter.name, adapter.model,
-            "review-v2-section-coherence" if scope_type == "section" else "review-v3-book-coherence",
-            datetime.now(timezone.utc).isoformat(), hashlib.sha256(segment.text.encode()).hexdigest(),
-            "completed", revision, previous_record.id,
+            unit.id,
+            segment.id,
+            text,
+            adapter.name,
+            adapter.model,
+            "review-v2-section-coherence"
+            if scope_type == "section"
+            else "review-v3-book-coherence",
+            datetime.now(timezone.utc).isoformat(),
+            hashlib.sha256(segment.text.encode()).hexdigest(),
+            "completed",
+            revision,
+            previous_record.id,
             f"agent-{scope_type}-review:" + (",".join(decision.categories) or "general"),
         )
         append_jsonl(root / STATE / "translations.jsonl", record)
@@ -127,25 +163,41 @@ def _review_scope(
     output_digest = _digest(scoped, active, review_context)
     review = ScopeReview(
         stable_id("scope_review", scope_type, scope_id, input_digest, adapter.name, adapter.model),
-        scope_type, scope_id, input_digest, output_digest, adapter.name, adapter.model,
-        datetime.now(timezone.utc).isoformat(), decision.verdict, list(decision.categories),
-        decision.rationale, max(0.0, min(1.0, float(decision.confidence))),
-        [item["segment_id"] for item in evidence], output_ids,
+        scope_type,
+        scope_id,
+        input_digest,
+        output_digest,
+        adapter.name,
+        adapter.model,
+        datetime.now(timezone.utc).isoformat(),
+        decision.verdict,
+        list(decision.categories),
+        decision.rationale,
+        max(0.0, min(1.0, float(decision.confidence))),
+        [item["segment_id"] for item in evidence],
+        output_ids,
     )
     append_jsonl(root / STATE / "scope_reviews.jsonl", review)
     previous.append(review)
     return 1, len(output_ids), 0
 
 
-def _state(root: Path) -> tuple[
-    list[Section], list[Segment], dict[str, TranslationRecord],
-    list[TranslationUnit], list[ScopeReview],
+def _state(
+    root: Path,
+) -> tuple[
+    list[Section],
+    list[Segment],
+    dict[str, TranslationRecord],
+    list[TranslationUnit],
+    list[ScopeReview],
 ]:
     sections = read_jsonl(root / STATE / "sections.jsonl", Section)
     segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
     records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
     return (
-        sections, segments, active_translations(records),
+        sections,
+        segments,
+        active_translations(records),
         read_jsonl(root / STATE / "units.jsonl", TranslationUnit),
         read_jsonl(root / STATE / "scope_reviews.jsonl", ScopeReview),
     )
@@ -191,20 +243,28 @@ def _review_context(root: Path, scoped: list[Segment]) -> dict[str, Any]:
     summaries = active_section_summaries(
         read_jsonl(root / STATE / "section_summaries.jsonl", SectionSummary)
     )
+    titles = active_section_titles(
+        read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    )
     relevant_sections = {item.section_id for item in scoped}
     section_context = {
         section_id: summaries[section_id].summary
-        for section_id in relevant_sections if section_id in summaries
+        for section_id in relevant_sections
+        if section_id in summaries
     }
     ambiguities = [
-        item.to_dict() for item in read_jsonl(
-            root / STATE / "ambiguities.jsonl", AmbiguityRecord
-        )
+        item.to_dict()
+        for item in read_jsonl(root / STATE / "ambiguities.jsonl", AmbiguityRecord)
         if item.section_id in relevant_sections and item.status == "open"
     ]
     return {
         "translation_strategy": strategy,
         "section_summaries": section_context,
+        "translated_section_titles": {
+            section_id: titles[section_id].translated_title
+            for section_id in relevant_sections
+            if section_id in titles
+        },
         "open_ambiguities": ambiguities,
     }
 
@@ -240,11 +300,15 @@ def _dossier(
         cost = len(segment.text) + len(translation)
         if evidence and used + cost > max_chars:
             continue
-        evidence.append({
-            "segment_id": segment.id, "section_id": segment.section_id,
-            "section_title": section_titles.get(segment.section_id, ""),
-            "source": segment.text, "translation": translation,
-        })
+        evidence.append(
+            {
+                "segment_id": segment.id,
+                "section_id": segment.section_id,
+                "section_title": section_titles.get(segment.section_id, ""),
+                "source": segment.text,
+                "translation": translation,
+            }
+        )
         used += cost
     return evidence
 

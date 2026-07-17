@@ -75,6 +75,10 @@ def main() -> int:
             "segments": jsonl_count(root / "state" / "segments.jsonl"),
             "units": jsonl_count(root / "state" / "units.jsonl"),
             "translation_records": jsonl_count(root / "state" / "translations.jsonl"),
+            "section_title_records": jsonl_count(root / "state" / "section_titles.jsonl"),
+            "translated_section_titles": jsonl_unique_count(
+                root / "state" / "section_titles.jsonl", "section_id"
+            ),
             "translation_reviews": jsonl_count(root / "state" / "reviews.jsonl"),
             "scope_reviews": jsonl_count(root / "state" / "scope_reviews.jsonl"),
             "section_summary_records": jsonl_count(root / "state" / "section_summaries.jsonl"),

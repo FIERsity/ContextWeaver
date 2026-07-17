@@ -1,23 +1,25 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from contextweaver.adapters import HeuristicReviewAdapter, MockTranslationAdapter
 from contextweaver.audit import audit_project
 from contextweaver.coherence import review_book, review_sections
 from contextweaver.coherence_adapters import HeuristicCoherenceReviewAdapter
-from contextweaver.models import Entity
+from contextweaver.models import Entity, SectionTitleRecord
 from contextweaver.pipeline import (
     export_selected,
     import_document,
     init_project,
     segment_document,
     translate_project,
+    translate_section_titles,
 )
 from contextweaver.review import review_project
 from contextweaver.strategy import HeuristicBookAnalysisAdapter, analyze_project
 from contextweaver.summaries import summarize_project
 from contextweaver.summary_adapters import HeuristicSummaryAdapter
-from contextweaver.storage import write_jsonl
+from contextweaver.storage import read_jsonl, write_jsonl
 
 
 def _complete_project(tmp_path: Path) -> tuple[Path, str]:
@@ -30,6 +32,7 @@ def _complete_project(tmp_path: Path) -> tuple[Path, str]:
     analyze_project(root, HeuristicBookAnalysisAdapter())
     summarize_project(root, HeuristicSummaryAdapter())
     translate_project(root, MockTranslationAdapter())
+    translate_section_titles(root, MockTranslationAdapter())
     review_project(root, HeuristicReviewAdapter())
     reviewer = HeuristicCoherenceReviewAdapter()
     review_sections(root, reviewer)
@@ -88,3 +91,13 @@ def test_audit_rejects_concept_rule_without_valid_source_evidence(tmp_path: Path
     report = audit_project(root, allow_mock=True)
     failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
     assert "translation_strategy" in failed
+
+
+def test_audit_rejects_section_title_bound_to_wrong_source_digest(tmp_path: Path) -> None:
+    root, _ = _complete_project(tmp_path)
+    path = root / "state" / "section_titles.jsonl"
+    records = read_jsonl(path, SectionTitleRecord)
+    write_jsonl(path, [replace(records[0], source_sha256="wrong")])
+    report = audit_project(root, allow_mock=True)
+    failed = {item["id"] for item in report["checks"] if item["status"] == "fail"}
+    assert "section_title_revision_integrity" in failed

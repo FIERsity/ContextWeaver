@@ -5,13 +5,18 @@ from types import SimpleNamespace
 from docx import Document
 from ebooklib import epub
 
-from contextweaver.adapters import MockTranslationAdapter, OpenAITranslationAdapter, TranslationAdapter
+from contextweaver.adapters import (
+    MockTranslationAdapter,
+    OpenAITranslationAdapter,
+    TranslationAdapter,
+)
 from contextweaver.knowledge import propose_knowledge
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
     active_translations,
     import_document,
+    import_translation_draft,
     init_project,
     segment_document,
     translate_project,
@@ -30,7 +35,10 @@ def _project(tmp_path: Path, source: Path) -> Path:
 
 def test_structured_markdown_preserves_blocks_and_inline_markup(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
-    source.write_text("# Title\n\n- One **bold** item\n- Two items\n\n> A *quoted* line.[^1]\n\n[^1]: Note.\n", encoding="utf-8")
+    source.write_text(
+        "# Title\n\n- One **bold** item\n- Two items\n\n> A *quoted* line.[^1]\n\n[^1]: Note.\n",
+        encoding="utf-8",
+    )
     root = _project(tmp_path, source)
     _, segments, _ = segment_document(root)
     assert [item.kind for item in segments] == ["list", "blockquote", "footnote"]
@@ -92,7 +100,9 @@ def test_selective_retranslation_creates_revision_chain(tmp_path: Path) -> None:
     root = _project(tmp_path, source)
     _, segments, _ = segment_document(root)
     translate_project(root, MockTranslationAdapter())
-    translate_project(root, MockTranslationAdapter(), segment_ids={segments[0].id}, reason="terminology-fix")
+    translate_project(
+        root, MockTranslationAdapter(), segment_ids={segments[0].id}, reason="terminology-fix"
+    )
     records = read_jsonl(root / "state" / "translations.jsonl", TranslationRecord)
     chain = [item for item in records if item.segment_id == segments[0].id]
     assert [item.revision for item in chain] == [1, 2]
@@ -120,8 +130,12 @@ class FakeResponses:
 def test_openai_adapter_retries_rate_limits_without_network() -> None:
     responses = FakeResponses()
     sleeps: list[float] = []
-    adapter = OpenAITranslationAdapter(client=SimpleNamespace(responses=responses), max_retries=2, sleep=sleeps.append)
-    segment = Segment("seg", "doc", "sec", 0, "Source", raw="**Source**", format_signature=["strong"])
+    adapter = OpenAITranslationAdapter(
+        client=SimpleNamespace(responses=responses), max_retries=2, sleep=sleeps.append
+    )
+    segment = Segment(
+        "seg", "doc", "sec", 0, "Source", raw="**Source**", format_signature=["strong"]
+    )
     packet = ContextPacket("unit", [segment], None, None, None, [], [])
     assert adapter.translate(packet) == ["译文"]
     assert responses.calls == 2
@@ -162,7 +176,10 @@ def test_format_and_terminology_validation(tmp_path: Path) -> None:
     segment_document(root)
     translate_project(root, MockTranslationAdapter())
     glossary = root / "state" / "glossary.csv"
-    glossary.write_text("term,preferred_translation,allowed_variants,note,source_segment_id,confidence,evidence_segment_ids,status\nContextWeaver,上下文编织器,,,1,,approved\n", encoding="utf-8")
+    glossary.write_text(
+        "term,preferred_translation,allowed_variants,note,source_segment_id,confidence,evidence_segment_ids,status\nContextWeaver,上下文编织器,,,1,,approved\n",
+        encoding="utf-8",
+    )
     issues = validate_project(root)
     assert "terminology_mismatch" in {item.kind for item in issues}
 
@@ -180,10 +197,35 @@ def test_numeric_anchor_validation_is_blocking(tmp_path: Path) -> None:
 
 
 def test_numeric_anchors_work_next_to_cjk() -> None:
-    from contextweaver.validation import _numbers
+    from contextweaver.validation import _numbers, _numeric_anchors
 
     assert _numbers("In 1791, close to 90 percent") == ["1791", "90"]
     assert _numbers("1791年，接近90%") == ["1791", "90"]
+    assert _numeric_anchors("First edition: May 2023") == ["2023", "month:5"]
+    assert _numeric_anchors("第一版：2023年5月") == ["2023", "month:5"]
+    assert _numeric_anchors("第一版：2023年五月") == ["2023", "month:5"]
+    assert _numeric_anchors("Published Jan. 2024") == ["2024", "month:1"]
+    assert _numeric_anchors("出版于2024年1月") == ["2024", "month:1"]
+    assert _numeric_anchors("It may improve 2023 outcomes") == ["2023"]
+
+
+def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# Copyright\n\nFirst edition: May 2023\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        json.dumps(
+            {"segment_id": segments[0].id, "translated_text": "第一版：2023年5月"},
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "GPT-5", "date-naturalization")
+    issues = validate_project(root)
+    assert "numeric_anchor_mismatch" not in {item.kind for item in issues}
 
 
 def test_link_destination_underscores_are_not_emphasis() -> None:
@@ -194,11 +236,16 @@ def test_link_destination_underscores_are_not_emphasis() -> None:
 
 def test_human_reference_alignment_and_mainland_draft(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
-    source.write_text("# 1 Control over Technology\n\nDigital technology changes work.\n\nA second paragraph.\n", encoding="utf-8")
+    source.write_text(
+        "# 1 Control over Technology\n\nDigital technology changes work.\n\nA second paragraph.\n",
+        encoding="utf-8",
+    )
     root = _project(tmp_path, source)
     _, _, units = segment_document(root, unit_size=1)
     reference = tmp_path / "reference.md"
-    reference.write_text("# １ 對科技的掌控\n\n數位科技改變工作。\n\n第二段使用軟體與網路。\n", encoding="utf-8")
+    reference.write_text(
+        "# １ 對科技的掌控\n\n數位科技改變工作。\n\n第二段使用軟體與網路。\n", encoding="utf-8"
+    )
     assert import_reference(root, reference, "zh-TW", "Human Translator (reference)") == (1, 2, 1)
     packet = build_context(root, units[0])
     assert packet.reference_texts

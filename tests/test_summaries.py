@@ -42,16 +42,26 @@ def test_summaries_are_resumable_versioned_and_injected(tmp_path: Path) -> None:
 
 def test_openai_summary_adapter_returns_structured_context() -> None:
     result = {
-        "summary": "本章讨论权力与技术。", "key_points": ["权力塑造技术"],
-        "evidence_segment_ids": ["seg"], "confidence": 0.9,
-        "ambiguities": [{
-            "category": "term", "description": "power 的语境义需区分。",
-            "evidence_segment_ids": ["seg"], "confidence": 0.8,
-        }],
+        "summary": "本章讨论权力与技术。",
+        "key_points": ["权力塑造技术"],
+        "evidence_segment_ids": ["seg"],
+        "confidence": 0.9,
+        "ambiguities": [
+            {
+                "category": "term",
+                "description": "power 的语境义需区分。",
+                "evidence_segment_ids": ["seg"],
+                "confidence": 0.8,
+            }
+        ],
     }
-    client = SimpleNamespace(responses=SimpleNamespace(
-        create=lambda **kwargs: SimpleNamespace(output_text=json.dumps(result, ensure_ascii=False))
-    ))
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            create=lambda **kwargs: SimpleNamespace(
+                output_text=json.dumps(result, ensure_ascii=False)
+            )
+        )
+    )
     decision = OpenAISummaryAdapter(client=client, model="test").summarize({"evidence": []})
     assert decision.summary == "本章讨论权力与技术。"
     assert decision.ambiguities[0].category == "term"
@@ -59,8 +69,11 @@ def test_openai_summary_adapter_returns_structured_context() -> None:
 
 def test_openai_summary_retries_transient_failure() -> None:
     result = {
-        "summary": "摘要", "key_points": [], "evidence_segment_ids": [],
-        "confidence": 0.8, "ambiguities": [],
+        "summary": "摘要",
+        "key_points": [],
+        "evidence_segment_ids": [],
+        "confidence": 0.8,
+        "ambiguities": [],
     }
 
     class RetryError(Exception):

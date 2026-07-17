@@ -5,17 +5,19 @@ import pytest
 from ebooklib import epub
 
 from contextweaver.adapters import MockTranslationAdapter, TranslationAdapter
-from contextweaver.models import ContextPacket, TranslationRecord
+from contextweaver.models import ContextPacket, SectionTitleRecord, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
     export_project,
     export_selected,
     import_document,
+    import_section_title_draft,
     import_translation_draft,
     init_project,
     project_status,
     segment_document,
     translate_project,
+    translate_section_titles,
     validate_project,
 )
 from contextweaver.storage import read_jsonl
@@ -177,3 +179,47 @@ def test_agent_draft_import_and_scoped_export(project: Path, tmp_path: Path) -> 
         {sections[0].id},
     )
     assert paths[0].parent.name == sections[0].id
+
+
+def test_section_title_draft_is_append_only_and_used_by_exports(
+    project: Path, tmp_path: Path
+) -> None:
+    sections, _, _ = segment_document(project, unit_size=1)
+    translate_project(project, MockTranslationAdapter())
+    draft = tmp_path / "titles.jsonl"
+    draft.write_text(
+        "\n".join(
+            json.dumps({"section_id": item.id, "translated_title": f"章节 {index}"})
+            for index, item in enumerate(sections, 1)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert import_section_title_draft(project, draft, "codex-agent", "GPT-5", "initial") == 2
+    translated, bilingual = export_project(project)
+    assert "# 章节 1" in translated.read_text(encoding="utf-8")
+    assert "# One / 章节 1" in bilingual.read_text(encoding="utf-8")
+    metadata = json.loads((project / "state" / "export_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["title"] == "章节 1"
+
+    revision = tmp_path / "title-revision.jsonl"
+    revision.write_text(
+        json.dumps({"section_id": sections[0].id, "translated_title": "第一章"}) + "\n",
+        encoding="utf-8",
+    )
+    assert import_section_title_draft(project, revision, "codex-agent", "GPT-5", "style-fix") == 1
+    records = read_jsonl(project / "state" / "section_titles.jsonl", SectionTitleRecord)
+    assert records[-1].revision == 2
+    assert records[-1].supersedes == records[0].id
+
+
+def test_online_section_title_translation_resumes_and_refreshes(project: Path) -> None:
+    segment_document(project)
+    assert translate_section_titles(project, MockTranslationAdapter()) == (2, 0)
+    assert translate_section_titles(project, MockTranslationAdapter()) == (0, 2)
+    assert translate_section_titles(
+        project, CapturingAdapter(), reason="style-refresh", refresh=True
+    ) == (2, 0)
+    records = read_jsonl(project / "state" / "section_titles.jsonl", SectionTitleRecord)
+    assert [item.revision for item in records] == [1, 1, 2, 2]
+    assert records[2].supersedes == records[0].id

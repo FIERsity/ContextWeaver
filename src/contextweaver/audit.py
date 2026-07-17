@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from .models import (
     Entity,
     ScopeReview,
     Section,
+    SectionTitleRecord,
     SectionSummary,
     Segment,
     SourceDocument,
@@ -21,7 +23,7 @@ from .models import (
     TranslationReview,
     TranslationUnit,
 )
-from .pipeline import STATE, active_translations, validate_project
+from .pipeline import STATE, active_section_titles, active_translations, validate_project
 from .storage import read_json, read_jsonl, write_json
 from .summaries import active_section_summaries
 
@@ -88,6 +90,27 @@ def audit_project(root: Path, *, allow_mock: bool = False) -> dict[str, Any]:
             "segments": len(segments),
             "units": len(units),
         },
+    )
+    title_records = read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    active_titles = active_section_titles(title_records)
+    title_non_mock = all(item.adapter != "mock" for item in active_titles.values())
+    _check(
+        checks,
+        "section_title_coverage",
+        set(active_titles) == section_ids,
+        {
+            "translated": len(set(active_titles) & section_ids),
+            "required": len(section_ids),
+            "records": len(title_records),
+            "allow_mock": allow_mock,
+            "mock_active": sum(item.adapter == "mock" for item in active_titles.values()),
+        },
+    )
+    _check(
+        checks,
+        "section_title_revision_integrity",
+        _section_title_integrity(title_records, {item.id: item.title for item in sections}),
+        {"records": len(title_records), "active": len(active_titles)},
     )
     strategy_path = root / STATE / "translation_brief.json"
     strategy = read_json(strategy_path) if strategy_path.exists() else {}
@@ -177,9 +200,13 @@ def audit_project(root: Path, *, allow_mock: bool = False) -> dict[str, Any]:
             "coverage": round(coverage, 6),
         },
     )
-    non_mock = bool(active) and all(
-        item.adapter != "mock" and not item.translated_text.startswith("[MOCK] ")
-        for item in active.values()
+    non_mock = (
+        bool(active)
+        and all(
+            item.adapter != "mock" and not item.translated_text.startswith("[MOCK] ")
+            for item in active.values()
+        )
+        and title_non_mock
     )
     _check(
         checks,
@@ -330,6 +357,33 @@ def _revision_integrity(records: list[TranslationRecord], segment_ids: set[str])
         if (
             previous is None
             or previous.segment_id != item.segment_id
+            or previous.revision != item.revision - 1
+        ):
+            return False
+    return True
+
+
+def _section_title_integrity(
+    records: list[SectionTitleRecord], section_titles: dict[str, str]
+) -> bool:
+    by_id = {item.id: item for item in records}
+    if len(by_id) != len(records):
+        return False
+    for item in records:
+        source_title = section_titles.get(item.section_id)
+        if (
+            source_title is None
+            or item.source_sha256 != hashlib.sha256(source_title.encode()).hexdigest()
+        ):
+            return False
+        if item.revision == 1:
+            if item.supersedes is not None:
+                return False
+            continue
+        previous = by_id.get(item.supersedes or "")
+        if (
+            previous is None
+            or previous.section_id != item.section_id
             or previous.revision != item.revision - 1
         ):
             return False

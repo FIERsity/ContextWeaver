@@ -122,6 +122,20 @@ class TranslationRecord(Record):
 
 
 @dataclass(frozen=True)
+class SectionTitleRecord(Record):
+    id: str
+    section_id: str
+    translated_title: str
+    adapter: str
+    model: str
+    created_at: str
+    source_sha256: str
+    revision: int = 1
+    supersedes: str | None = None
+    reason: str = "initial"
+
+
+@dataclass(frozen=True)
 class ReviewIssue(Record):
     id: str
     kind: str

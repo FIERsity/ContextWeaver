@@ -7,7 +7,8 @@ ContextWeaver separates durable domain state from orchestration and provider cal
 3. Context assembly selects only the unit's source segments, immediate neighbors, optional section summary, glossary, and entity records.
 4. An adapter returns exactly one string per requested segment. Cardinality and empty output are treated as hard errors.
 5. Translation records are appended and completed Segment IDs are skipped. Selected segments append linked revisions.
-6. Validation selects the newest revision, requires complete alignment, and checks structure, terminology, suspicious length, and repeated-source consistency.
+6. Section title translations use a separate append-only revision chain, preserving stable Section and Segment IDs.
+7. Validation selects the newest revision, requires complete alignment, and checks structure, terminology, suspicious length, and repeated-source consistency.
 
 Before step 3, the Agent-first path samples every section and writes an automatic work profile. Human review is never a prerequisite for continuing.
 
@@ -41,6 +42,8 @@ Chapter and book coherence use `scope_reviews.jsonl`. Each ScopeReview fingerpri
 
 IDs use truncated SHA-256 values over namespaced inputs. Segment identity includes the imported document digest, section identity, source ordinal, and normalized text. The same imported bytes and segmentation algorithm therefore reproduce the same IDs. A changed source is a new document; it must not silently inherit translations from an older source.
 
+Section headings are structural source data rather than ordinary Segments. `section_titles.jsonl` binds each Section ID and source-title digest to an append-only target-title revision. This avoids changing existing IDs while allowing Agent translation, human correction, resume, translated EPUB navigation, and bilingual source/target headings. Active title IDs enter coherence-review fingerprints, so a corrected chapter title makes affected reviews stale.
+
 ## Persistence
 
 `project.json` and `manifest.json` describe the project and progress. Structural collections use JSONL, glossary data uses CSV, and exported documents use Markdown. Generated structural collections are written through a temporary file and atomically replaced. Translation records are append-only in the normal flow. Readers reject unknown fields so schema drift fails visibly rather than corrupting state.
@@ -68,6 +71,8 @@ The source-language Segment is the sole semantic authority. Prompt version `tran
 Agent-native offline work uses `translation-import` with strict two-field JSONL. The importer validates IDs, rejects duplicate or empty rows, appends immutable TranslationRecords, records the truthful adapter/model and reason, and never infers that an online API was used. Validation and export can be scoped to explicit Segment or Section IDs; scoped issue files do not mark the entire project complete.
 
 Deterministic fidelity checks currently compare numeric anchors (including currency and percentages), acronyms, Markdown structure, approved terminology, suspicious length, and repeated-source consistency. Semantic entailment and natural-language concept roles are handled by the optional online Critic/Reviser; the offline reviewer supplies deterministic workflow checks only.
+
+Numeric comparison canonicalizes information rather than requiring identical character forms. Explicit English calendar months adjacent to a year and Chinese numeric or written months map to the same `month:N` anchor, so `May 2023`, `2023年5月`, and `2023年五月` agree. A modal `may` outside date syntax is not converted, and all other year/day/value anchors remain independently required.
 
 ## Online adapter boundary
 

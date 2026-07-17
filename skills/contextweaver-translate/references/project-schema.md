@@ -10,6 +10,7 @@
 - `state/glossary.csv`: editable terminology decisions and evidence.
 - `state/entities.jsonl`: editable cross-section entities and evidence.
 - `state/translations.jsonl`: append-only translations and revision links.
+- `state/section_titles.jsonl`: append-only target titles bound to stable Section IDs and source-title digests.
 - `state/reviews.jsonl`: append-only Critic/Reviser decisions binding exact input and output TranslationRecord IDs, categories, rationale, confidence, and reviewer attribution.
 - `state/scope_reviews.jsonl`: append-only Section/book review fingerprints, bounded evidence IDs, consistency decisions, and linked multi-Segment revisions.
 - `state/section_summaries.jsonl`: append-only Section context with source/strategy digest, evidence, confidence, revision, and `supersedes`.

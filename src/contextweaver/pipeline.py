@@ -23,6 +23,7 @@ from .models import (
     Project,
     ReviewIssue,
     Section,
+    SectionTitleRecord,
     Segment,
     SourceDocument,
     TranslationRecord,
@@ -105,6 +106,7 @@ def replace_document(root: Path, source: Path) -> SourceDocument:
         "segments.jsonl",
         "units.jsonl",
         "translations.jsonl",
+        "section_titles.jsonl",
         "reviews.jsonl",
         "scope_reviews.jsonl",
         "issues.jsonl",
@@ -318,6 +320,136 @@ def _structural_translation(segment: Segment) -> str | None:
     return raw if _IMAGE_ONLY.fullmatch(raw) else None
 
 
+def translate_section_titles(
+    root: Path,
+    adapter: TranslationAdapter,
+    section_ids: set[str] | None = None,
+    reason: str = "initial",
+    refresh: bool = False,
+) -> tuple[int, int]:
+    sections = read_jsonl(root / STATE / "sections.jsonl", Section)
+    known = {item.id for item in sections}
+    unknown = (section_ids or set()) - known
+    if unknown:
+        raise ValueError(f"Unknown section IDs: {sorted(unknown)}")
+    records = read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    active = active_section_titles(records)
+    project = _project(root)
+    strategy_path = root / STATE / "translation_brief.json"
+    strategy = read_json(strategy_path) if strategy_path.exists() else {}
+    glossary = _glossary(root)
+    entities = read_jsonl(root / STATE / "entities.jsonl", Entity)
+    written = skipped = 0
+    for section in sections:
+        if section_ids is not None and section.id not in section_ids:
+            continue
+        previous = active.get(section.id)
+        if previous is not None and not refresh:
+            skipped += 1
+            continue
+        synthetic_id = stable_id("section_title", section.id, section.title)
+        segment = Segment(
+            synthetic_id,
+            section.document_id,
+            section.id,
+            -1,
+            section.title,
+            "heading",
+            section.title,
+        )
+        packet = ContextPacket(
+            stable_id("title_unit", section.id),
+            [segment],
+            None,
+            None,
+            _section_summary(root, section.id),
+            glossary,
+            entities,
+            [],
+            project.source_language,
+            project.target_language,
+            strategy,
+        )
+        outputs = adapter.translate(packet)
+        if len(outputs) != 1 or not outputs[0].strip():
+            raise RuntimeError(f"Adapter did not return one non-empty title for {section.id}")
+        translated_title = outputs[0].strip()
+        if "\n" in translated_title:
+            raise RuntimeError(f"Adapter returned a multiline title for {section.id}")
+        if previous is not None and translated_title == previous.translated_title:
+            skipped += 1
+            continue
+        revision = previous.revision + 1 if previous else 1
+        record = SectionTitleRecord(
+            stable_id("section_title_tr", section.id, adapter.name, adapter.model, revision),
+            section.id,
+            translated_title,
+            adapter.name,
+            adapter.model,
+            datetime.now(timezone.utc).isoformat(),
+            hashlib.sha256(section.title.encode()).hexdigest(),
+            revision,
+            previous.id if previous else None,
+            reason,
+        )
+        append_jsonl(root / STATE / "section_titles.jsonl", record)
+        active[section.id] = record
+        written += 1
+    return written, skipped
+
+
+def import_section_title_draft(
+    root: Path,
+    draft: Path,
+    adapter: str,
+    model: str,
+    reason: str,
+) -> int:
+    sections = read_jsonl(root / STATE / "sections.jsonl", Section)
+    section_map = {item.id: item for item in sections}
+    records = read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    active = active_section_titles(records)
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for line_number, line in enumerate(draft.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        if set(raw) != {"section_id", "translated_title"}:
+            raise ValueError(
+                f"{draft}:{line_number}: expected section_id and translated_title only"
+            )
+        section_id = str(raw["section_id"])
+        title = str(raw["translated_title"]).strip()
+        if section_id not in section_map:
+            raise ValueError(f"{draft}:{line_number}: unknown Section ID {section_id}")
+        if section_id in seen:
+            raise ValueError(f"{draft}:{line_number}: duplicate Section ID {section_id}")
+        if not title or "\n" in title:
+            raise ValueError(f"{draft}:{line_number}: title must be one non-empty line")
+        seen.add(section_id)
+        rows.append({"section_id": section_id, "translated_title": title})
+    for row in rows:
+        section = section_map[row["section_id"]]
+        previous = active.get(section.id)
+        revision = previous.revision + 1 if previous else 1
+        record = SectionTitleRecord(
+            stable_id("section_title_tr", section.id, adapter, model, revision),
+            section.id,
+            row["translated_title"],
+            adapter,
+            model,
+            datetime.now(timezone.utc).isoformat(),
+            hashlib.sha256(section.title.encode()).hexdigest(),
+            revision,
+            previous.id if previous else None,
+            reason,
+        )
+        append_jsonl(root / STATE / "section_titles.jsonl", record)
+        active[section.id] = record
+    return len(rows)
+
+
 def validate_project(
     root: Path,
     section_ids: set[str] | None = None,
@@ -393,6 +525,7 @@ def export_selected(
     if errors:
         raise RuntimeError(f"Export blocked by {len(errors)} validation error(s)")
     sections = read_jsonl(root / STATE / "sections.jsonl", Section)
+    root_section = min(sections, key=lambda item: item.ordinal) if sections else None
     segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
     if section_ids:
         sections = [item for item in sections if item.id in section_ids]
@@ -404,13 +537,23 @@ def export_selected(
     records = read_jsonl(root / STATE / "translations.jsonl", TranslationRecord)
     active = active_translations(records)
     translated = {segment_id: item.translated_text for segment_id, item in active.items()}
+    title_records = read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    translated_titles = {
+        section_id: item.translated_title
+        for section_id, item in active_section_titles(title_records).items()
+    }
     from .exporters import render_markdown, write_epub
 
     project = _project(root)
     source = _require_source(root)
     inferred_translator = translator or _translator_attribution(list(active.values()))
+    target_book_title = (
+        translated_titles.get(root_section.id, project.name)
+        if root_section is not None
+        else project.name
+    )
     provenance = {
-        "title": project.name,
+        "title": target_book_title,
         "source_title": source.title,
         "source_language": project.source_language,
         "target_language": project.target_language,
@@ -432,13 +575,29 @@ def export_selected(
             path = output_root / f"{content}.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                render_markdown(sections, segments, translated, content, provenance),
+                render_markdown(
+                    sections,
+                    segments,
+                    translated,
+                    content,
+                    provenance,
+                    translated_titles,
+                ),
                 encoding="utf-8",
             )
             paths.append(path)
         if "epub" in formats:
             path = output_root / f"{content}.epub"
-            write_epub(path, project, sections, segments, translated, content, provenance)
+            write_epub(
+                path,
+                project,
+                sections,
+                segments,
+                translated,
+                content,
+                provenance,
+                translated_titles,
+            )
             paths.append(path)
     if section_ids is None and segment_ids is None:
         _update_manifest(root, steps={"export": "completed"})
@@ -683,6 +842,16 @@ def active_translations(records: list[TranslationRecord]) -> dict[str, Translati
             record.segment_id not in active or record.revision > active[record.segment_id].revision
         ):
             active[record.segment_id] = record
+    return active
+
+
+def active_section_titles(
+    records: list[SectionTitleRecord],
+) -> dict[str, SectionTitleRecord]:
+    active: dict[str, SectionTitleRecord] = {}
+    for record in records:
+        if record.section_id not in active or record.revision > active[record.section_id].revision:
+            active[record.section_id] = record
     return active
 
 
