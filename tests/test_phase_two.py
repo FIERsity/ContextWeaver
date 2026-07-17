@@ -233,8 +233,13 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
     ("source", "target"),
     [
         ("in the 1980s", "在20世纪80年代"),
+        ("in the 1700s", "在18世纪"),
         ("throughout the 1950s and 1960s", "整个20世纪50年代和60年代"),
         ("during the twentieth century", "在20世纪期间"),
+        ("in eighteenth-century Britain", "在18世纪的英国"),
+        ("chapters 5 through 9", "第五章至第九章"),
+        ("Chapter 7", "第七章"),
+        ("January 5, 1914", "1914年1月5日"),
         ("World War II", "第二次世界大战"),
         ("around 1.5 million cars", "约150万辆汽车"),
     ],

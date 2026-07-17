@@ -166,6 +166,47 @@ def _numeric_anchors(text: str) -> list[str]:
 
         working = re.sub(pattern, substitution, working, flags=re.IGNORECASE)
 
+    chapter_numbers = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "十一": 11,
+        "十二": 12,
+    }
+    chapter_word = "|".join(sorted(chapter_numbers, key=len, reverse=True))
+    chapter_range = re.compile(r"\bchapters?\s+(\d+)\s+(?:through|to|and)\s+(\d+)\b", re.IGNORECASE)
+    match = chapter_range.search(working)
+    while match:
+        anchors.extend([f"chapter:{int(match.group(1))}", f"chapter:{int(match.group(2))}"])
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = chapter_range.search(working)
+    chinese_chapter_range = re.compile(
+        rf"第\s*({chapter_word}|\d+)\s*章\s*(?:至|到|和|与|—|–|-)\s*第?\s*({chapter_word}|\d+)\s*章"
+    )
+    match = chinese_chapter_range.search(working)
+    while match:
+        anchors.extend(
+            [
+                f"chapter:{_chapter_number(match.group(1), chapter_numbers)}",
+                f"chapter:{_chapter_number(match.group(2), chapter_numbers)}",
+            ]
+        )
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = chinese_chapter_range.search(working)
+    replace(r"\bchapters?\s+(\d+)\b", lambda match: int(match.group(1)), "chapter")
+    replace(
+        rf"第\s*({chapter_word}|\d+)\s*章",
+        lambda match: _chapter_number(match.group(1), chapter_numbers),
+        "chapter",
+    )
+    replace(r"\b(\d{2}00)s\b", lambda match: int(match.group(1)) // 100 + 1, "century")
     replace(r"\b(\d{4})s\b", lambda match: int(match.group(1)), "decade")
     shared_decades = re.compile(
         r"(?<!\d)(\d{1,2})\s*世纪\s*(\d{1,2})\s*年代\s*(?:和|与|至|到|、)\s*(\d{1,2})\s*年代"
@@ -187,13 +228,15 @@ def _numeric_anchors(text: str) -> list[str]:
         "decade",
     )
     english_centuries = {
+        "sixteenth": 16,
+        "seventeenth": 17,
         "eighteenth": 18,
         "nineteenth": 19,
         "twentieth": 20,
         "twenty-first": 21,
     }
     replace(
-        r"\b(eighteenth|nineteenth|twentieth|twenty-first)\s+century\b",
+        r"\b(sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty-first)[\s-]+century\b",
         lambda match: english_centuries[match.group(1).casefold()],
         "century",
     )
@@ -233,11 +276,16 @@ def _numeric_anchors(text: str) -> list[str]:
     for pattern, month in _MONTH_PATTERNS:
         date_pattern = (
             rf"(?:\b{pattern}\b\.?\s+(?:of\s+)?\d{{4}}"
+            rf"|\b{pattern}\b\.?\s+\d{{1,2}}(?:st|nd|rd|th)?[,]?\s+\d{{4}}"
             rf"|\d{{4}}\s+\b{pattern}\b\.?)"
         )
         if re.search(date_pattern, lowered):
             anchors.append(f"month:{month}")
     return sorted(anchors)
+
+
+def _chapter_number(value: str, words: dict[str, int]) -> int:
+    return int(value) if value.isdigit() else words[value]
 
 
 def _scaled_number(number: str, multiplier: int) -> str:
