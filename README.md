@@ -83,6 +83,12 @@ contextweaver translation-import my-book work/repaired.jsonl \
   --adapter codex-agent --model GPT-5 --reason strict-audit-repair
 ```
 
+For a target-only numeric anchor that the Agent can explicitly trace to source context, it may instead append a source-backed decision. The decision is bound to both the exact issue ID and the current TranslationRecord, so any later retranslation invalidates it automatically:
+
+```bash
+contextweaver audit-resolution-import my-book work/source-backed.jsonl --model GPT-5
+```
+
 Chapter and whole-book review use bounded dossiers instead of sending the complete source repeatedly. Section dossiers combine stratified coverage with every sampled high-risk concept occurrence. The book dossier combines representative passages from every Section with a cross-book concept concordance. Scope reviews are fingerprinted from active TranslationRecord IDs, so an unchanged chapter or book is skipped on resume while any later revision automatically invalidates the relevant review:
 
 ```bash

@@ -19,6 +19,7 @@ from contextweaver.pipeline import (
     build_context,
     active_translations,
     export_audit_repair_batch,
+    import_audit_resolutions,
     import_document,
     import_translation_draft,
     init_project,
@@ -234,6 +235,41 @@ def test_audit_repair_batch_is_bounded_and_preserves_current_record(tmp_path: Pa
     assert row["segment_id"] == segments[0].id
     assert row["current_translation"] == "产出在2024年上升20%。"
     assert row["response_contract"]["required_keys"] == ["segment_id", "translated_text"]
+
+
+def test_source_backed_audit_resolution_is_bound_to_current_record(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nNo quantity was stated.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        json.dumps({"segment_id": segments[0].id, "translated_text": "原文未写数值，但译文写作5月。"})
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "test", "initial")
+    issue = next(item for item in validate_project(root, numeric_mode="strict") if item.severity == "error")
+    record = active_translations(read_jsonl(root / "state" / "translations.jsonl", TranslationRecord))[segments[0].id]
+    resolution = tmp_path / "resolution.jsonl"
+    resolution.write_text(
+        json.dumps(
+            {
+                "segment_id": segments[0].id,
+                "translation_record_id": record.id,
+                "issue_id": issue.id,
+                "rationale": "The target renders a source-backed calendar context.",
+                "evidence": "Source and target were compared by the reviewer.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert import_audit_resolutions(root, resolution, "codex-agent", "test") == 1
+    resolved = validate_project(root, numeric_mode="strict")
+    assert [(item.severity, item.status) for item in resolved if item.id == issue.id] == [
+        ("warning", "resolved")
+    ]
 
 
 def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> None:

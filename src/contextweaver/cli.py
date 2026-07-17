@@ -36,6 +36,7 @@ from .pipeline import (
     plan_agent_campaign,
     import_document,
     import_translation_draft,
+    import_audit_resolutions,
     import_section_title_draft,
     init_project,
     migrate_project,
@@ -152,6 +153,13 @@ def parser() -> argparse.ArgumentParser:
     draft.add_argument("--adapter", default="codex-agent")
     draft.add_argument("--model", required=True)
     draft.add_argument("--reason", required=True)
+    resolution = commands.add_parser(
+        "audit-resolution-import", help="Import source-backed strict-audit decisions"
+    )
+    resolution.add_argument("project", type=Path)
+    resolution.add_argument("draft", type=Path)
+    resolution.add_argument("--reviewer", default="codex-agent")
+    resolution.add_argument("--model", required=True)
     batch = commands.add_parser(
         "agent-batch", help="Export pending TranslationUnits with bounded Agent context"
     )
@@ -392,6 +400,9 @@ def run(argv: list[str] | None = None) -> int:
                 args.project, args.draft, args.adapter, args.model, args.reason
             )
             LOG.info("Imported %d translation revision(s)", count)
+        elif args.command == "audit-resolution-import":
+            count = import_audit_resolutions(args.project, args.draft, args.reviewer, args.model)
+            LOG.info("Imported %d strict-audit resolution(s)", count)
         elif args.command == "agent-batch":
             units, segments = export_agent_batch(
                 args.project,

@@ -146,6 +146,22 @@ class ReviewIssue(Record):
 
 
 @dataclass(frozen=True)
+class AuditResolution(Record):
+    """An evidence-backed disposition for one current deterministic issue."""
+
+    id: str
+    segment_id: str
+    translation_record_id: str
+    issue_id: str
+    disposition: Literal["source_backed"]
+    rationale: str
+    evidence: str
+    reviewer: str
+    model: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class TranslationReview(Record):
     id: str
     segment_id: str

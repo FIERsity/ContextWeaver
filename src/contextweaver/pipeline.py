@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +18,7 @@ from .importers import read_source
 from .markdown import parse_markdown
 from .models import (
     ContextPacket,
+    AuditResolution,
     Entity,
     GlossaryEntry,
     Manifest,
@@ -816,6 +818,22 @@ def validate_project(
     from .validation import quality_issues
 
     issues.extend(quality_issues(segments, records, _glossary(root), numeric_mode))
+    if numeric_mode == "strict":
+        resolutions = read_jsonl(root / STATE / "audit_resolutions.jsonl", AuditResolution)
+        accepted = {
+            (item.segment_id, item.translation_record_id, item.issue_id)
+            for item in resolutions
+            if item.disposition == "source_backed"
+        }
+        issues = [
+            replace(issue, severity="warning", status="resolved")
+            if issue.severity == "error"
+            and issue.segment_id is not None
+            and (issue.segment_id, active.get(issue.segment_id).id if active.get(issue.segment_id) else "", issue.id)
+            in accepted
+            else issue
+            for issue in issues
+        ]
     if section_ids or segment_ids:
         scope_ids = sorted((section_ids or set()) | (segment_ids or set()))
         scope = scope_ids[0] if len(scope_ids) == 1 else stable_id("scope", *scope_ids)
@@ -824,6 +842,49 @@ def validate_project(
         write_jsonl(root / STATE / "issues.jsonl", issues)
         _update_manifest(root, steps={"validate": "completed" if not issues else "needs_review"})
     return issues
+
+
+def import_audit_resolutions(
+    root: Path, draft: Path, reviewer: str, model: str
+) -> int:
+    """Append Agent decisions for source-backed strict numeric renderings."""
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    strict_issues = {
+        item.id: item for item in validate_project(root, numeric_mode="strict") if item.severity == "error"
+    }
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for line_number, line in enumerate(draft.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        required = {"segment_id", "translation_record_id", "issue_id", "rationale", "evidence"}
+        if set(raw) != required:
+            raise ValueError(f"{draft}:{line_number}: expected {sorted(required)}")
+        row = {key: str(raw[key]).strip() for key in required}
+        if not all(row.values()):
+            raise ValueError(f"{draft}:{line_number}: resolution values must be non-empty")
+        issue = strict_issues.get(row["issue_id"])
+        if issue is None or issue.segment_id != row["segment_id"]:
+            raise ValueError(f"{draft}:{line_number}: issue is not a current strict error")
+        if active.get(row["segment_id"], None) is None or active[row["segment_id"]].id != row["translation_record_id"]:
+            raise ValueError(f"{draft}:{line_number}: translation record is not current")
+        key = (row["segment_id"], row["issue_id"])
+        if key in seen:
+            raise ValueError(f"{draft}:{line_number}: duplicate resolution")
+        seen.add(key)
+        rows.append(row)
+    for row in rows:
+        append_jsonl(
+            root / STATE / "audit_resolutions.jsonl",
+            AuditResolution(
+                stable_id("audit_resolution", row["segment_id"], row["translation_record_id"], row["issue_id"]),
+                row["segment_id"], row["translation_record_id"], row["issue_id"],
+                "source_backed", row["rationale"], row["evidence"], reviewer, model,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    return len(rows)
 
 
 def export_project(root: Path) -> tuple[Path, Path]:
@@ -1028,7 +1089,8 @@ def export_audit_repair_batch(
                 "source": {"text": segment.text, "raw": segment.raw},
                 "current_translation": record.translated_text,
                 "issues": [
-                    {"kind": item.kind, "message": item.message} for item in by_segment[segment_id]
+                    {"id": item.id, "kind": item.kind, "message": item.message}
+                    for item in by_segment[segment_id]
                 ],
                 "context": packet.to_dict(),
                 "response_contract": {
