@@ -232,6 +232,12 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numbers("In 1791, close to 90 percent") == ["1791", "90"]
     assert _numbers("1791年，接近90%") == ["1791", "90"]
     assert _balanced_numeric_anchors(["5"]) == _balanced_numeric_anchors(["ordinal:5"])
+    assert _numeric_anchors("seven hundred and fifty people") == ["quantity:750"]
+    assert _numeric_anchors("more than three hundred million people") == [
+        "quantity:300000000"
+    ]
+    assert _numeric_anchors("fifty-five million messages") == ["quantity:55000000"]
+    assert _numeric_anchors("the first century") == _numeric_anchors("最初一个世纪")
     assert _numeric_anchors("First edition: May 2023") == ["2023", "month:5"]
     assert _numeric_anchors("第一版：2023年5月") == ["2023", "month:5"]
     assert _numeric_anchors("第一版：2023年五月") == ["2023", "month:5"]

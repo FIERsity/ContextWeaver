@@ -309,6 +309,7 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: int(match.group(1)),
         "century",
     )
+    replace(r"(?:第\s*一个|最初\s*一个)世纪", lambda _match: 1, "century")
     replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
     replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
     replace(r"\b(?:a|one)\s+millennium\b", lambda _match: 1_000, "quantity")
@@ -345,8 +346,25 @@ def _numeric_anchors(text: str) -> list[str]:
         "seventeen": 17,
         "eighteen": 18,
         "nineteen": 19,
+        "twenty": 20,
+        "thirty": 30,
+        "forty": 40,
+        "fifty": 50,
+        "sixty": 60,
+        "seventy": 70,
+        "eighty": 80,
+        "ninety": 90,
     }
     number_words = "|".join(word_numbers)
+    magnitude_words = "hundred|thousand|million|billion"
+    compound_number = (
+        rf"\b(?:{number_words})(?:[\s-]+(?:{number_words}|{magnitude_words}|and))+\b"
+    )
+    replace(
+        compound_number,
+        lambda match: _english_number_value(match.group(0), word_numbers, magnitudes),
+        "quantity",
+    )
     replace(
         rf"\b({number_words})\s+hundred\s+thousand\b",
         lambda match: word_numbers[match.group(1).casefold()] * 100_000,
@@ -477,6 +495,24 @@ def _chapter_number(value: str, words: dict[str, int]) -> int:
 def _scaled_number(number: str, multiplier: int) -> str:
     value = Decimal(number.replace(",", "")) * multiplier
     return format(value.normalize(), "f")
+
+
+def _english_number_value(
+    phrase: str, words: dict[str, int], magnitudes: dict[str, int]
+) -> int:
+    """Parse a compound English cardinal such as `seven hundred and fifty`."""
+    total = current = 0
+    for token in re.findall(r"[a-z]+", phrase.casefold()):
+        if token == "and":
+            continue
+        if token in words:
+            current += words[token]
+        elif token == "hundred":
+            current = max(current, 1) * 100
+        elif token in magnitudes:
+            total += max(current, 1) * magnitudes[token]
+            current = 0
+    return total + current
 
 
 def _acronyms(text: str) -> list[str]:
