@@ -212,8 +212,10 @@ def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> N
         encoding="utf-8",
     )
     import_translation_draft(root, draft, "codex-agent", "test", "numeric-mode")
-    balanced = validate_project(root)
+    relaxed = validate_project(root)
+    balanced = validate_project(root, numeric_mode="balanced")
     strict = validate_project(root, numeric_mode="strict")
+    assert not [item for item in relaxed if item.kind == "numeric_anchor_mismatch"]
     assert [item.severity for item in balanced if item.kind == "numeric_anchor_mismatch"] == [
         "warning"
     ]
@@ -244,6 +246,21 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("Published Jan. 2024") == ["2024", "month:1"]
     assert _numeric_anchors("出版于2024年1月") == ["2024", "month:1"]
     assert _numeric_anchors("It may improve 2023 outcomes") == ["2023"]
+    assert _numeric_anchors("during the 1950s, 1960s, and 1970s") == [
+        "decade:1950",
+        "decade:1960",
+        "decade:1970",
+    ]
+    assert _numeric_anchors("20世纪50、60和70年代") == [
+        "decade:1950",
+        "decade:1960",
+        "decade:1970",
+    ]
+    assert _numeric_anchors("more than 7.5 million") == _numeric_anchors("750多万")
+    assert _numeric_anchors("between the ages of eight and twelve") == [
+        "quantity:12",
+        "quantity:8",
+    ]
 
 
 def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path) -> None:

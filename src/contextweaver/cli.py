@@ -98,9 +98,12 @@ def parser() -> argparse.ArgumentParser:
     )
     val.add_argument(
         "--numeric-mode",
-        choices=["balanced", "strict"],
-        default="balanced",
-        help="Balanced warns on target-only numbers; strict blocks every mismatch",
+        choices=["relaxed", "balanced", "strict"],
+        default="relaxed",
+        help=(
+            "Relaxed blocks missing source numbers; balanced also warns on target-only "
+            "numbers; strict blocks every mismatch"
+        ),
     )
     exp = commands.add_parser("export", help="Export selected Markdown and/or EPUB artifacts")
     exp.add_argument("project", type=Path)

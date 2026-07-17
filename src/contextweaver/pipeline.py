@@ -779,7 +779,7 @@ def validate_project(
     root: Path,
     section_ids: set[str] | None = None,
     segment_ids: set[str] | None = None,
-    numeric_mode: str = "balanced",
+    numeric_mode: str = "relaxed",
 ) -> list[ReviewIssue]:
     all_segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
     segments = [
