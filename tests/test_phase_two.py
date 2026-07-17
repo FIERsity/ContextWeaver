@@ -18,6 +18,7 @@ from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
     active_translations,
+    export_audit_repair_batch,
     import_document,
     import_translation_draft,
     init_project,
@@ -213,6 +214,26 @@ def test_numeric_anchor_validation_is_blocking(tmp_path: Path) -> None:
     records.write_text(records.read_text().replace("25%", "20%"), encoding="utf-8")
     issues = validate_project(root)
     assert "numeric_anchor_mismatch" in {item.kind for item in issues}
+
+
+def test_audit_repair_batch_is_bounded_and_preserves_current_record(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nOutput rose 25% in 2024.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        json.dumps({"segment_id": segments[0].id, "translated_text": "产出在2024年上升20%。"})
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "test", "initial")
+    package = tmp_path / "repair.jsonl"
+    assert export_audit_repair_batch(root, package, max_segments=1) == 1
+    row = json.loads(package.read_text(encoding="utf-8"))
+    assert row["segment_id"] == segments[0].id
+    assert row["current_translation"] == "产出在2024年上升20%。"
+    assert row["response_contract"]["required_keys"] == ["segment_id", "translated_text"]
 
 
 def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> None:

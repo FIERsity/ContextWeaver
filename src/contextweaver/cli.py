@@ -30,6 +30,7 @@ from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
     DEFAULT_AGENT_BATCH_MAX_UNITS,
     DEFAULT_MODEL_CONTEXT_TOKENS,
+    export_audit_repair_batch,
     export_selected,
     export_agent_batch,
     plan_agent_campaign,
@@ -174,6 +175,13 @@ def parser() -> argparse.ArgumentParser:
         help="Operational model context estimate used for batch planning",
     )
     batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
+    repair_batch = commands.add_parser(
+        "audit-repair-batch", help="Export strict audit failures for bounded Agent revision"
+    )
+    repair_batch.add_argument("project", type=Path)
+    repair_batch.add_argument("output", type=Path)
+    repair_batch.add_argument("--max-segments", type=int)
+    repair_batch.add_argument("--force", action="store_true", help="Replace an existing repair package")
     campaign = commands.add_parser(
         "agent-campaign", help="Plan or inspect a resumable multi-chapter Agent campaign"
     )
@@ -400,6 +408,11 @@ def run(argv: list[str] | None = None) -> int:
                 segments,
                 args.output,
             )
+        elif args.command == "audit-repair-batch":
+            count = export_audit_repair_batch(
+                args.project, args.output, args.max_segments, args.force
+            )
+            LOG.info("Wrote %d strict-audit repair item(s) to %s", count, args.output)
         elif args.command == "agent-campaign":
             campaign = plan_agent_campaign(
                 args.project,

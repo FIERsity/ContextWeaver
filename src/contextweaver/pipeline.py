@@ -989,6 +989,77 @@ def import_translation_draft(
     return len(rows)
 
 
+def export_audit_repair_batch(
+    root: Path,
+    output: Path,
+    max_segments: int | None = None,
+    force: bool = False,
+) -> int:
+    """Export strict-validation failures as bounded, Agent-repairable JSONL."""
+    if max_segments is not None and max_segments < 1:
+        raise ValueError("max_segments must be at least 1")
+    if output.exists() and not force:
+        raise FileExistsError(f"{output} exists; pass --force to replace it")
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    errors = [item for item in validate_project(root, numeric_mode="strict") if item.severity == "error"]
+    by_segment: dict[str, list[ReviewIssue]] = defaultdict(list)
+    for issue in errors:
+        by_segment[issue.segment_id].append(issue)
+    unit_by_segment = {segment_id: unit for unit in units for segment_id in unit.segment_ids}
+    segment_map = {segment.id: segment for segment in segments}
+    rows: list[dict[str, object]] = []
+    for segment_id in sorted(by_segment, key=lambda item: segment_map[item].ordinal):
+        if max_segments is not None and len(rows) >= max_segments:
+            break
+        segment = segment_map[segment_id]
+        record = active.get(segment_id)
+        unit = unit_by_segment.get(segment_id)
+        if record is None or unit is None:
+            continue
+        packet = build_context(root, unit)
+        rows.append(
+            {
+                "schema_version": 1,
+                "task": "strict-audit-repair",
+                "segment_id": segment_id,
+                "translation_record_id": record.id,
+                "source": {"text": segment.text, "raw": segment.raw},
+                "current_translation": record.translated_text,
+                "issues": [
+                    {"kind": item.kind, "message": item.message} for item in by_segment[segment_id]
+                ],
+                "context": packet.to_dict(),
+                "response_contract": {
+                    "required_keys": ["segment_id", "translated_text"],
+                    "instruction": (
+                        "Return a complete replacement only when source evidence or formatting "
+                        "requires it. Preserve facts, markup, and natural Chinese narration."
+                    ),
+                },
+            }
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+        newline="\n",
+    )
+    write_json(
+        root / STATE / "audit_repair_batch.json",
+        {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "numeric_mode": "strict",
+            "error_count": len(errors),
+            "exported_segments": len(rows),
+            "output": str(output),
+        },
+    )
+    return len(rows)
+
+
 def project_status(root: Path) -> Manifest:
     path = root / STATE / "manifest.json"
     data = read_json(path)

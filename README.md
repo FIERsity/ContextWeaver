@@ -75,6 +75,14 @@ contextweaver review my-book --adapter heuristic --section sec_...
 
 `state/reviews.jsonl` records the exact input and output TranslationRecord IDs, verdict, issue categories, rationale, confidence, reviewer, and model. A Reviser must return a complete changed translation; accepted revisions append to `translations.jsonl` with `supersedes` rather than overwriting history.
 
+When the final strict audit finds a deterministic failure, export only the affected current records as a bounded repair package. It includes the exact source, current translation, failure evidence, and ContextPacket; the Agent returns the standard two-field draft, which re-enters through the normal append-only import path:
+
+```bash
+contextweaver audit-repair-batch my-book work/audit-repair.jsonl --max-segments 25
+contextweaver translation-import my-book work/repaired.jsonl \
+  --adapter codex-agent --model GPT-5 --reason strict-audit-repair
+```
+
 Chapter and whole-book review use bounded dossiers instead of sending the complete source repeatedly. Section dossiers combine stratified coverage with every sampled high-risk concept occurrence. The book dossier combines representative passages from every Section with a cross-book concept concordance. Scope reviews are fingerprinted from active TranslationRecord IDs, so an unchanged chapter or book is skipped on resume while any later revision automatically invalidates the relevant review:
 
 ```bash
