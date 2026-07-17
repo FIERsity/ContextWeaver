@@ -268,6 +268,7 @@ def _numeric_anchors(text: str) -> list[str]:
     )
     replace(r"\b(\d{2}00)s\b", lambda match: int(match.group(1)) // 100 + 1, "century")
     replace(r"\b(\d{4})s\b", lambda match: int(match.group(1)), "decade")
+    replace(r"(?<!\d)(\d{4})\s*年代", lambda match: int(match.group(1)), "decade")
     shared_decades = re.compile(
         r"(?<!\d)(\d{1,2})\s*世纪\s*((?:\d{1,2}\s*(?:年代)?\s*(?:和|与|至|到|、)\s*)+\d{1,2}\s*年代)"
     )
@@ -328,6 +329,11 @@ def _numeric_anchors(text: str) -> list[str]:
         "century",
     )
     replace(
+        r"\b(\d+)(?:st|nd|rd|th)[\s-]+century\b",
+        lambda match: int(match.group(1)),
+        "century",
+    )
+    replace(
         r"(?<!\d)(\d{1,2})\s*世纪",
         lambda match: int(match.group(1)),
         "century",
@@ -380,6 +386,11 @@ def _numeric_anchors(text: str) -> list[str]:
     }
     number_words = "|".join(word_numbers)
     magnitude_words = "hundred|thousand|million|billion"
+    replace(
+        rf"\bnineteen[\s-]+((?:{number_words})(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?)\b",
+        lambda match: 1900 + _english_number_value(match.group(1), word_numbers, magnitudes),
+        "quantity",
+    )
     replace_many(
         rf"\bbetween(?:\s+the\s+ages?\s+of)?\s+({number_words})\s+and\s+({number_words})\b",
         lambda match: [
@@ -451,6 +462,12 @@ def _numeric_anchors(text: str) -> list[str]:
     replace(
         r"([一二三四五六七八九两])万",
         lambda match: chinese_number[match.group(1)] * 10_000,
+        "quantity",
+    )
+    replace(
+        r"(?<![第数一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿])",
+        lambda match: (chinese_number[match.group(1)] if match.group(1) else 1) * 10
+        + (chinese_number[match.group(2)] if match.group(2) else 0),
         "quantity",
     )
     replace_many(
@@ -579,6 +596,8 @@ def _acronyms(text: str) -> list[str]:
         "WITH",
     }
     candidates = set(re.findall(r"(?<![A-Za-z])[A-Z]{2,8}(?![A-Za-z])", text))
+    for slogan in re.findall(r"\b[A-Z]{2,}(?:[\s.,!?;:'’\-]+[A-Z]{2,})+\b", text):
+        candidates.difference_update(re.findall(r"[A-Z]{2,8}", slogan))
     if re.search(r"\bWorld\s+War\s+II\b", text, flags=re.IGNORECASE):
         candidates.discard("II")
     return sorted(

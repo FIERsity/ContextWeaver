@@ -261,6 +261,20 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
         "quantity:12",
         "quantity:8",
     ]
+    assert _numeric_anchors("the late 2010s") == _numeric_anchors("2010年代后期")
+    assert _balanced_numeric_anchors(
+        _numeric_anchors("nineteen sixty-four")
+    ) == _balanced_numeric_anchors(_numeric_anchors("1964"))
+    assert _numeric_anchors("twenty-five people") == _numeric_anchors("二十五人")
+    assert _numeric_anchors("thirty-five years") == _numeric_anchors("三十五年")
+    assert _numeric_anchors("during the 19th century") == _numeric_anchors("19世纪")
+
+
+def test_uppercase_slogans_are_not_acronyms() -> None:
+    from contextweaver.validation import _acronyms
+
+    assert _acronyms("THE PUBLIC DOES NOT HAVE TO TAKE WHAT IS DISHED OUT") == []
+    assert _acronyms("The slogan was KEEP THEIR HANDS OFF, but IBM disagreed.") == ["IBM"]
 
 
 def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path) -> None:
