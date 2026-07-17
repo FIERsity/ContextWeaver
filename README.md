@@ -150,6 +150,8 @@ contextweaver export my-book --format all --content all --segment seg_...
 
 `agent-batch` exports only pending TranslationUnits and includes their bounded ContextPackets, Section identity, source/target languages, strategy, summary, neighbors, approved knowledge, and optional reference evidence. It refuses to overwrite an existing package unless `--force` is explicit. The Agent's returned draft remains deliberately strict: each row contains only `segment_id` and `translated_text`. Scoped validation/export allows a unit or chapter pilot to complete without treating the rest of the book as translated.
 
+Use small packages while calibrating a new work's style and validation rules. Once representative batches pass cleanly, increase `--max-units` (for example, 50 units or roughly 150 default-sized Segments) and review at chapter boundaries. The ContextPacket remains bounded per TranslationUnit; a larger package changes orchestration throughput, not the amount of source context sent for any individual unit.
+
 Section headings have a separate append-only revision chain so translated books do not retain English chapter titles or destabilize Section/Segment IDs:
 
 ```bash

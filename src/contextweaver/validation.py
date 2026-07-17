@@ -295,6 +295,28 @@ def _numeric_anchors(text: str) -> list[str]:
         )
         if re.search(date_pattern, lowered):
             anchors.append(f"month:{month}")
+    full_months = (
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    )
+    for month, name in enumerate(full_months, 1):
+        anchor = f"month:{month}"
+        contextual_month = rf"\b(?:in|on|by|during|until|from|since|through|late|early)\s+{name}\b"
+        dated_month = rf"\b{name}\s+\d{{1,2}}(?:st|nd|rd|th)?\b"
+        if anchor not in anchors and re.search(
+            rf"(?:{contextual_month}|{dated_month})", working, flags=re.IGNORECASE
+        ):
+            anchors.append(anchor)
     return sorted(anchors)
 
 
