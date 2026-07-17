@@ -637,7 +637,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"(?<!十)([一二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月)",
+        r"(?<!十)([一二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月|人|名)",
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )
