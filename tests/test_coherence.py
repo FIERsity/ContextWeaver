@@ -88,7 +88,10 @@ def test_section_and_book_reviews_are_digest_resumable(tmp_path: Path) -> None:
 def test_book_review_requires_complete_translation(tmp_path: Path) -> None:
     root, _ = _project(tmp_path)
     translations = root / "state" / "translations.jsonl"
-    translations.write_text("\n".join(translations.read_text().splitlines()[:-1]) + "\n")
+    translations.write_text(
+        "\n".join(translations.read_text(encoding="utf-8").splitlines()[:-1]) + "\n",
+        encoding="utf-8",
+    )
     import pytest
 
     with pytest.raises(RuntimeError, match="missing"):
