@@ -65,6 +65,7 @@ Set a shell variable such as `CW=contextweaver` or `CW="uv run contextweaver"`. 
 - Inspect the original and normalized `source/document.md` when import fidelity matters.
 - Stop and report unsupported or damaged structures instead of guessing.
 - Preserve Markdown markers, footnote references, list shape, tables, and block quotes.
+- Let image-only Segments use the deterministic structural passthrough. Do not send alt-text-only image markers to a semantic translation or review model, and do not credit the passthrough as a translator.
 - Treat the imported source-language Segment as the sole authority. If source and reference conflict, follow the source and open a review issue when material.
 - For zh-CN, apply source-faithful Chinese naturalization: preserve facts, qualifications, argument relations, tone, and important rhetoric, while allowing clause reordering, sentence splitting or merging, natural subject/transition restoration, and Chinese punctuation. Avoid English-shaped syntax and sentence-by-sentence calques. Naturalization must never become silent addition, omission, explanation, or strengthening/softening of a claim.
 - Never commit imported books, human translations, normalized copyrighted text, or generated reference adaptations unless the user confirms redistribution rights.

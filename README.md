@@ -192,6 +192,8 @@ contextweaver export my-book --format all --content all \
 
 Generated EPUB files include metadata, navigation, one XHTML document per non-empty Section, and basic typography. Until binary asset copying is implemented, unresolved source images are rendered as explicit text placeholders rather than broken links.
 
+Image-only Markdown Segments bypass the model through a deterministic structural passthrough, preserving their exact source marker and stable alignment without wasting translation calls. EPUB export still renders unresolved binary assets as explicit placeholders until asset copying is implemented.
+
 Final exports embed translation provenance in Markdown front matter, EPUB Dublin Core metadata, and a visible EPUB provenance page. The actual Agent/model is credited as translator; a consulted human edition is credited separately as translation reference. The source-language Segment is always authoritative. The locale-adapted reference export explicitly identifies itself as an OpenCC transformation, not a new translation from the original.
 
 Generated structural files are atomically rewritten. Translation records are appended, completed Segment IDs are skipped on later runs, and selective retranslation adds `revision`, `supersedes`, and `reason`. Export is blocked when validation has errors. Importing a different source requires `--replace`. Existing schema-v1 projects can be upgraded with `contextweaver migrate PROJECT`.

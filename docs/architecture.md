@@ -73,6 +73,8 @@ Deterministic fidelity checks currently compare numeric anchors (including curre
 
 The optional OpenAI adapter uses the Responses API with a strict JSON Schema requiring one translation per source item. It owns credentials, request pacing, and bounded retries for transient failures. The pipeline commits every completed unit before the next call, so a later failure resumes without repeating completed work.
 
+Image-only Markdown Segments contain structure but no prose. The pipeline records them through the deterministic `structural-passthrough` adapter and preserves the exact Markdown instead of spending a model request on the alt-text token. Mixed units send only their prose Segments to the selected model while retaining one-to-one TranslationRecords for every source Segment.
+
 ## Codex Skill surface
 
 `skills/contextweaver-translate` is the agent-facing orchestration layer. It instructs Codex to inspect state before mutation, use the CLI as the durable execution layer, generate or reuse the automatic translation brief, preserve revision history, and validate before export. Its read-only inspection script emits JSON so agents can determine the next safe step without parsing human-oriented logs. The Skill contains no provider credentials and does not bypass CLI invariants.

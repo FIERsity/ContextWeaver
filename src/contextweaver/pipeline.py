@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -233,37 +234,64 @@ def translate_project(
             continue
         if max_units is not None and processed_units >= max_units:
             break
-        pending_packet = ContextPacket(
-            unit.id,
-            pending,
-            packet.previous_text,
-            packet.next_text,
-            packet.section_summary,
-            packet.glossary,
-            packet.entities,
-            packet.reference_texts,
-            packet.source_language,
-            packet.target_language,
-            packet.translation_strategy,
-        )
-        outputs = adapter.translate(pending_packet)
-        if len(outputs) != len(pending):
-            raise RuntimeError(
-                f"Adapter returned {len(outputs)} outputs for {len(pending)} segments"
+        model_pending: list[Segment] = []
+        translated: list[tuple[Segment, str, str, str, str]] = []
+        for segment in pending:
+            structural = _structural_translation(segment)
+            if structural is None:
+                model_pending.append(segment)
+            else:
+                translated.append(
+                    (
+                        segment,
+                        structural,
+                        "structural-passthrough",
+                        "deterministic-v1",
+                        "translate-v1-structural-passthrough",
+                    )
+                )
+        if model_pending:
+            pending_packet = ContextPacket(
+                unit.id,
+                model_pending,
+                packet.previous_text,
+                packet.next_text,
+                packet.section_summary,
+                packet.glossary,
+                packet.entities,
+                packet.reference_texts,
+                packet.source_language,
+                packet.target_language,
+                packet.translation_strategy,
             )
-        for segment, output in zip(pending, outputs, strict=True):
+            outputs = adapter.translate(pending_packet)
+            if len(outputs) != len(model_pending):
+                raise RuntimeError(
+                    f"Adapter returned {len(outputs)} outputs for {len(model_pending)} segments"
+                )
+            translated.extend(
+                (
+                    segment,
+                    output,
+                    adapter.name,
+                    adapter.model,
+                    "translate-v3-source-faithful-natural-zh",
+                )
+                for segment, output in zip(model_pending, outputs, strict=True)
+            )
+        for segment, output, adapter_name, model_name, prompt_version in translated:
             if not output.strip():
                 raise RuntimeError(f"Adapter returned empty translation for {segment.id}")
             previous = active.get(segment.id)
             revision = previous.revision + 1 if previous else 1
             record = TranslationRecord(
-                stable_id("tr", unit.id, segment.id, adapter.name, adapter.model, revision),
+                stable_id("tr", unit.id, segment.id, adapter_name, model_name, revision),
                 unit.id,
                 segment.id,
                 output,
-                adapter.name,
-                adapter.model,
-                "translate-v3-source-faithful-natural-zh",
+                adapter_name,
+                model_name,
+                prompt_version,
                 datetime.now(timezone.utc).isoformat(),
                 hashlib.sha256(segment.text.encode()).hexdigest(),
                 "completed",
@@ -279,6 +307,15 @@ def translate_project(
     translation_status = "completed" if len(active) == total_segments else "pending"
     _update_manifest(root, translation_count=len(active), steps={"translate": translation_status})
     return written, skipped
+
+
+_IMAGE_ONLY = re.compile(r"^!\[[^\]]*\]\([^\n)]+\)\s*$")
+
+
+def _structural_translation(segment: Segment) -> str | None:
+    """Return source-preserving output for a Segment with no translatable prose."""
+    raw = segment.raw.strip()
+    return raw if _IMAGE_ONLY.fullmatch(raw) else None
 
 
 def validate_project(
@@ -371,13 +408,13 @@ def export_selected(
 
     project = _project(root)
     source = _require_source(root)
-    inferred_translator = _translator_attribution(list(active.values()))
+    inferred_translator = translator or _translator_attribution(list(active.values()))
     provenance = {
         "title": project.name,
         "source_title": source.title,
         "source_language": project.source_language,
         "target_language": project.target_language,
-        "translator": translator or inferred_translator,
+        "translator": inferred_translator,
         "reference_translation": reference_credit or _reference_credit(root),
         "fidelity_note": "The source-language document is authoritative. Human translations are consultation references only.",
     }
@@ -650,9 +687,11 @@ def active_translations(records: list[TranslationRecord]) -> dict[str, Translati
 
 
 def _translator_attribution(records: list[TranslationRecord]) -> str:
-    signatures = sorted({(item.adapter, item.model) for item in records})
+    signatures = sorted(
+        {(item.adapter, item.model) for item in records if item.adapter != "structural-passthrough"}
+    )
     if not signatures:
-        raise RuntimeError("Cannot attribute an export without completed TranslationRecords")
+        return "No semantic translation (structural content only)"
     if signatures == [("mock", "deterministic-copy-v1")]:
         return "ContextWeaver Mock Adapter (workflow test; not a final translation)"
     return "; ".join(

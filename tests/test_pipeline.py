@@ -5,7 +5,7 @@ import pytest
 from ebooklib import epub
 
 from contextweaver.adapters import MockTranslationAdapter, TranslationAdapter
-from contextweaver.models import ContextPacket
+from contextweaver.models import ContextPacket, TranslationRecord
 from contextweaver.pipeline import (
     build_context,
     export_project,
@@ -18,6 +18,7 @@ from contextweaver.pipeline import (
     translate_project,
     validate_project,
 )
+from contextweaver.storage import read_jsonl
 
 
 @pytest.fixture
@@ -112,10 +113,45 @@ class BrokenAdapter(TranslationAdapter):
         return []
 
 
+class CapturingAdapter(TranslationAdapter):
+    name = "capture"
+    model = "test"
+
+    def __init__(self) -> None:
+        self.segment_ids: list[str] = []
+
+    def translate(self, packet: ContextPacket) -> list[str]:
+        self.segment_ids.extend(item.id for item in packet.source_segments)
+        return [f"translated:{item.text}" for item in packet.source_segments]
+
+
 def test_adapter_cardinality_is_enforced(project: Path) -> None:
     segment_document(project)
     with pytest.raises(RuntimeError, match="outputs"):
         translate_project(project, BrokenAdapter())
+
+
+def test_image_only_segments_bypass_model_and_preserve_markdown(tmp_path: Path) -> None:
+    source = tmp_path / "images.md"
+    source.write_text(
+        "# One\n\n![Cover](images/cover.jpg)\n\nCopyright notice.\n", encoding="utf-8"
+    )
+    root = tmp_path / "translation"
+    init_project(root, "Images", "en", "zh-CN")
+    import_document(root, source)
+    _, segments, _ = segment_document(root, unit_size=3)
+    adapter = CapturingAdapter()
+    assert translate_project(root, adapter) == (2, 0)
+    assert adapter.segment_ids == [segments[1].id]
+    records = read_jsonl(root / "state" / "translations.jsonl", TranslationRecord)
+    image_record = next(item for item in records if item.segment_id == segments[0].id)
+    assert image_record.translated_text == "![Cover](images/cover.jpg)"
+    assert image_record.adapter == "structural-passthrough"
+    assert image_record.model == "deterministic-v1"
+    assert validate_project(root) == []
+    export_project(root)
+    metadata = json.loads((root / "state" / "export_metadata.json").read_text(encoding="utf-8"))
+    assert "structural-passthrough" not in metadata["translator"]
 
 
 def test_agent_draft_import_and_scoped_export(project: Path, tmp_path: Path) -> None:
