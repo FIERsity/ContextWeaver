@@ -237,6 +237,7 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
         ("throughout the 1950s and 1960s", "整个20世纪50年代和60年代"),
         ("during the twentieth century", "在20世纪期间"),
         ("in eighteenth-century Britain", "在18世纪的英国"),
+        ("from the sixteenth and seventeenth centuries", "从16世纪和17世纪"),
         ("chapters 5 through 9", "第五章至第九章"),
         ("Chapter 7", "第七章"),
         ("January 5, 1914", "1914年1月5日"),

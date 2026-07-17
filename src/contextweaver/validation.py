@@ -235,8 +235,22 @@ def _numeric_anchors(text: str) -> list[str]:
         "twentieth": 20,
         "twenty-first": 21,
     }
+    century_words = "|".join(english_centuries)
+    coordinated_centuries = re.compile(
+        rf"\b({century_words})\s+and\s+({century_words})\s+centuries\b", re.IGNORECASE
+    )
+    match = coordinated_centuries.search(working)
+    while match:
+        anchors.extend(
+            [
+                f"century:{english_centuries[match.group(1).casefold()]}",
+                f"century:{english_centuries[match.group(2).casefold()]}",
+            ]
+        )
+        working = working[: match.start()] + " " + working[match.end() :]
+        match = coordinated_centuries.search(working)
     replace(
-        r"\b(sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty-first)[\s-]+century\b",
+        rf"\b({century_words})[\s-]+century\b",
         lambda match: english_centuries[match.group(1).casefold()],
         "century",
     )
