@@ -115,6 +115,29 @@ def test_agent_batch_rejects_invalid_scope_and_limit(project: Path, tmp_path: Pa
         export_agent_batch(project, tmp_path / "batch.jsonl", {"sec_missing"})
 
 
+def test_agent_batch_adapts_to_source_budget_and_section_boundary(
+    project: Path, tmp_path: Path
+) -> None:
+    sections, segments, _ = segment_document(project, unit_size=1)
+    output = tmp_path / "adaptive.jsonl"
+    assert export_agent_batch(project, output, target_source_chars=25) == (1, 1)
+    row = json.loads(output.read_text(encoding="utf-8"))
+    assert row["section"]["id"] == sections[0].id
+    assert row["context_packet"]["source_segments"][0]["id"] == segments[0].id
+    strategy = json.loads((project / "state" / "batch_strategy.json").read_text())
+    assert strategy["mode"] == "adaptive"
+    assert strategy["target_source_chars"] == 25
+    assert strategy["last_package"]["segment_count"] == 1
+
+
+def test_agent_batch_explicit_limit_overrides_adaptive_section_stop(
+    project: Path, tmp_path: Path
+) -> None:
+    segment_document(project, unit_size=1)
+    assert export_agent_batch(project, tmp_path / "explicit.jsonl", max_units=3) == (3, 3)
+    assert not (project / "state" / "batch_strategy.json").exists()
+
+
 def test_optional_epub_exports_are_readable(project: Path) -> None:
     segment_document(project, unit_size=2)
     translate_project(project, MockTranslationAdapter())

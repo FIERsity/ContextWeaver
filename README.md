@@ -141,7 +141,7 @@ Codex or another offline Agent can import a strict, reviewable JSONL draft witho
 
 ```bash
 contextweaver agent-batch my-book agent-work.jsonl \
-  --section sec_... --max-units 10
+  --section sec_...
 contextweaver translation-import my-book draft.jsonl \
   --adapter codex-agent --model "GPT-5" --reason chapter-pilot
 contextweaver validate my-book --segment seg_... --segment seg_...
@@ -150,7 +150,7 @@ contextweaver export my-book --format all --content all --segment seg_...
 
 `agent-batch` exports only pending TranslationUnits and includes their bounded ContextPackets, Section identity, source/target languages, strategy, summary, neighbors, approved knowledge, and optional reference evidence. It refuses to overwrite an existing package unless `--force` is explicit. The Agent's returned draft remains deliberately strict: each row contains only `segment_id` and `translated_text`. Scoped validation/export allows a unit or chapter pilot to complete without treating the rest of the book as translated.
 
-Use small packages while calibrating a new work's style and validation rules. Once representative batches pass cleanly, increase `--max-units` (for example, 50 units or roughly 150 default-sized Segments) and review at chapter boundaries. The ContextPacket remains bounded per TranslationUnit; a larger package changes orchestration throughput, not the amount of source context sent for any individual unit.
+When `--max-units` is omitted, `agent-batch` uses the transparent adaptive policy stored in `state/batch_strategy.json`: target about 40,000 source characters, cap the package at 30 TranslationUnits (normally about 90 Segments), and stop at a Section boundary. This is the production default derived from real-book packages: 30 Segments was too fragmented, while a 150-Segment package expanded one recovery and review surface to about 65,000 source characters and 699 KB of serialized context. Use `--target-source-chars` to tune the adaptive budget, or explicit `--max-units` for calibration and deliberately higher-throughput runs. The ContextPacket remains bounded per TranslationUnit; package size changes orchestration throughput, not the context sent for an individual unit.
 
 Section headings have a separate append-only revision chain so translated books do not retain English chapter titles or destabilize Section/Segment IDs:
 

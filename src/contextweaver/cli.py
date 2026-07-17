@@ -142,7 +142,17 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("project", type=Path)
     batch.add_argument("output", type=Path)
     batch.add_argument("--section", action="append", default=[])
-    batch.add_argument("--max-units", type=int, default=10)
+    batch.add_argument(
+        "--max-units",
+        type=int,
+        help="Explicit unit limit; omit to use the adaptive chapter-bounded strategy",
+    )
+    batch.add_argument(
+        "--target-source-chars",
+        type=int,
+        default=40_000,
+        help="Adaptive source-character budget (default: 40000)",
+    )
     batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
     titles = commands.add_parser(
         "translate-titles", help="Translate missing Section titles without changing Section IDs"
@@ -338,6 +348,7 @@ def run(argv: list[str] | None = None) -> int:
                 set(args.section) or None,
                 args.max_units,
                 args.force,
+                args.target_source_chars,
             )
             LOG.info(
                 "Wrote %d pending unit(s) containing %d segment(s) to %s",

@@ -228,6 +228,21 @@ def _numeric_anchors(text: str) -> list[str]:
         "decade",
     )
     english_centuries = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+        "eleventh": 11,
+        "twelfth": 12,
+        "thirteenth": 13,
+        "fourteenth": 14,
+        "fifteenth": 15,
         "sixteenth": 16,
         "seventeenth": 17,
         "eighteenth": 18,
@@ -261,7 +276,27 @@ def _numeric_anchors(text: str) -> list[str]:
     )
     replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
     replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
+    replace(r"\b(\d+)(?:st|nd|rd|th)\b", lambda match: int(match.group(1)), "ordinal")
+    replace(
+        r"第\s*(\d+)(?!\s*(?:章|次世界大战))",
+        lambda match: int(match.group(1)),
+        "ordinal",
+    )
     magnitudes = {"thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+    word_numbers = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+    replace(
+        r"\b(one|two|three|four|five)\s+(thousand|million|billion)\b",
+        lambda match: word_numbers[match.group(1).casefold()]
+        * magnitudes[match.group(2).casefold()],
+        "quantity",
+    )
+    chinese_number = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5}
+    replace(
+        r"([一二三四五])\s*(百万|十亿)",
+        lambda match: chinese_number[match.group(1)]
+        * (1_000_000 if match.group(2) == "百万" else 1_000_000_000),
+        "quantity",
+    )
     replace(
         r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(thousand|million|billion)\b",
         lambda match: _scaled_number(match.group(1), magnitudes[match.group(2).casefold()]),

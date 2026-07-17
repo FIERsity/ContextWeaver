@@ -236,6 +236,7 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
         ("in the 1700s", "在18世纪"),
         ("throughout the 1950s and 1960s", "整个20世纪50年代和60年代"),
         ("during the twentieth century", "在20世纪期间"),
+        ("in the third century bce", "公元前3世纪"),
         ("in eighteenth-century Britain", "在18世纪的英国"),
         ("from the sixteenth and seventeenth centuries", "从16世纪和17世纪"),
         ("chapters 5 through 9", "第五章至第九章"),
@@ -246,6 +247,8 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
         ("In October of that year", "同年10月"),
         ("World War II", "第二次世界大战"),
         ("around 1.5 million cars", "约150万辆汽车"),
+        ("more than one million options", "一百万多个选项"),
+        ("the 5th Regiment", "第5团"),
     ],
 )
 def test_semantic_numeric_renderings_share_source_anchors(source: str, target: str) -> None:

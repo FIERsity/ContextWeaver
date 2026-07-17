@@ -32,6 +32,8 @@ from .models import (
 from .storage import append_jsonl, read_json, read_jsonl, write_json, write_jsonl
 
 STATE = "state"
+DEFAULT_AGENT_BATCH_SOURCE_CHARS = 40_000
+DEFAULT_AGENT_BATCH_MAX_UNITS = 30
 
 
 def stable_id(prefix: str, *parts: object) -> str:
@@ -193,12 +195,15 @@ def export_agent_batch(
     root: Path,
     output: Path,
     section_ids: set[str] | None = None,
-    max_units: int = 10,
+    max_units: int | None = None,
     force: bool = False,
+    target_source_chars: int = DEFAULT_AGENT_BATCH_SOURCE_CHARS,
 ) -> tuple[int, int]:
     """Export pending TranslationUnits as self-contained, read-only Agent work items."""
-    if max_units < 1:
+    if max_units is not None and max_units < 1:
         raise ValueError("max_units must be at least 1")
+    if target_source_chars < 1:
+        raise ValueError("target_source_chars must be at least 1")
     if output.exists() and not force:
         raise FileExistsError(f"Agent batch already exists: {output}; pass --force to replace it")
     units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
@@ -213,6 +218,10 @@ def export_agent_batch(
     project = _project(root)
     rows: list[dict[str, object]] = []
     segment_count = 0
+    source_chars = 0
+    selected_section_id: str | None = None
+    adaptive = max_units is None
+    unit_limit = max_units or DEFAULT_AGENT_BATCH_MAX_UNITS
     for unit in units:
         if section_ids is not None and unit.section_id not in section_ids:
             continue
@@ -220,8 +229,14 @@ def export_agent_batch(
         pending = [segment for segment in packet.source_segments if segment.id not in active]
         if not pending:
             continue
-        if len(rows) >= max_units:
+        pending_chars = sum(len(segment.text) for segment in pending)
+        if adaptive and selected_section_id is not None and unit.section_id != selected_section_id:
             break
+        if len(rows) >= unit_limit:
+            break
+        if adaptive and rows and source_chars + pending_chars > target_source_chars:
+            break
+        selected_section_id = unit.section_id
         pending_packet = ContextPacket(
             packet.unit_id,
             pending,
@@ -251,11 +266,33 @@ def export_agent_batch(
             }
         )
         segment_count += len(pending)
+        source_chars += pending_chars
     content = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(content, encoding="utf-8", newline="\n")
     temporary.replace(output)
+    if adaptive:
+        write_json(
+            root / STATE / "batch_strategy.json",
+            {
+                "schema_version": 1,
+                "mode": "adaptive",
+                "target_source_chars": target_source_chars,
+                "max_units": unit_limit,
+                "stop_at_section_boundary": True,
+                "last_package": {
+                    "unit_count": len(rows),
+                    "segment_count": segment_count,
+                    "source_chars": source_chars,
+                    "section_id": selected_section_id,
+                },
+                "rationale": (
+                    "Bound recovery and review cost by source characters while keeping each "
+                    "TranslationUnit context independent. Explicit --max-units overrides this policy."
+                ),
+            },
+        )
     return len(rows), segment_count
 
 
