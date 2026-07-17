@@ -307,6 +307,11 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("$4 trillion") == _numeric_anchors("4万亿美元")
     assert _numeric_anchors("during COVID-19") == _numeric_anchors("新冠疫情期间") == []
     assert _numeric_anchors("two and two make four") == _numeric_anchors("二加二等于四")
+    assert _numeric_anchors("fourteen hours") == _numeric_anchors("十四个小时")
+    assert _numeric_anchors("twenty years") == _numeric_anchors("二十年")
+    assert _numeric_anchors("a thousand-year struggle") == _numeric_anchors("千年斗争")
+    assert _numeric_anchors("a hundred years") == _numeric_anchors("一百年")
+    assert _numeric_anchors("several decades") == _numeric_anchors("几十年") == []
 
 
 def test_relaxed_numeric_mode_allows_localized_zero_padded_title(tmp_path: Path) -> None:

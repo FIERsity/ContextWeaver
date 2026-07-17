@@ -88,7 +88,9 @@ def quality_issues(
             for target_anchor in list(target_set):
                 if target_anchor.startswith("decade:"):
                     decade = int(target_anchor.removeprefix("decade:"))
-                    target_set.add(f"century:{decade // 100 + 1}")
+                    inferred_century = f"century:{decade // 100 + 1}"
+                    if inferred_century in source_set:
+                        target_set.add(inferred_century)
             missing = Counter(source_set - target_set)
             extra = Counter(target_set - source_set)
             if numeric_mode == "relaxed":
@@ -522,6 +524,29 @@ def _numeric_anchors(text: str) -> list[str]:
         * magnitudes[match.group(2).casefold()],
         "quantity",
     )
+    # Bare English cardinals are numeric only in an explicit quantity phrase.
+    # Keeping the unit requirement avoids treating ordinary prose such as
+    # ``one thing`` as a factual anchor while covering ``fourteen hours`` and
+    # ``twenty years``.
+    quantity_units = (
+        "years?|months?|weeks?|days?|hours?|minutes?|people|persons?|men|women|"
+        "children|workers?|languages|objects|documents|countries|demands|decades?"
+    )
+    replace(
+        rf"\b({number_words})[\s-]+(?:{quantity_units})\b",
+        lambda match: word_numbers[match.group(1).casefold()],
+        "quantity",
+    )
+    replace(
+        r"\b(thousand|million|billion|trillion)[\s-]+years?\b",
+        lambda match: magnitudes[match.group(1).casefold()],
+        "quantity",
+    )
+    replace(
+        r"\ba\s+(hundred|thousand|million|billion|trillion)\s+(?:years?|months?|weeks?|days?)\b",
+        lambda match: magnitudes[match.group(1).casefold()],
+        "quantity",
+    )
     replace(r"\ba\s+million\b", lambda _match: 1_000_000, "quantity")
     chinese_number = {
         "一": 1,
@@ -578,7 +603,7 @@ def _numeric_anchors(text: str) -> list[str]:
         * {"千": 1_000, "百万": 1_000_000, "十亿": 1_000_000_000}[match.group(2)],
         "quantity",
     )
-    replace(r"(?<![一二三四五六七八九两])十亿", lambda _match: 1_000_000_000, "quantity")
+    replace(r"(?<![一二三四五六七八九两数几])十亿", lambda _match: 1_000_000_000, "quantity")
     replace(
         r"([一二三四五六七八九两])百",
         lambda match: chinese_number[match.group(1)] * 100,
@@ -600,7 +625,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"(?<![第数一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿字分足全余几])",
+        r"(?<![第数几一二三四五六七八九十百千万亿])([一二三四五六七八九两]?)十([一二三四五六七八九]?)(?![百千万亿字分足全余几])",
         lambda match: (chinese_number[match.group(1)] if match.group(1) else 1) * 10
         + (chinese_number[match.group(2)] if match.group(2) else 0),
         "quantity",
