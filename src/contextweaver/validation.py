@@ -506,6 +506,13 @@ def _numeric_anchors(text: str) -> list[str]:
         ],
         "quantity",
     )
+    # English prose also uses the bare form ``hundred and sixty``.  Consume
+    # it before the generic compound parser can reduce it to just ``sixty``.
+    replace(
+        r"\bhundred\s+and\s+(\w+)\s+(?:years?|months?|weeks?|days?|hours?)\b",
+        lambda match: 100 + word_numbers[match.group(1).casefold()],
+        "quantity",
+    )
     compound_number = (
         rf"\b(?:{number_words})(?:[\s-]+(?:{number_words}|{magnitude_words}|and))+\b"
     )
@@ -529,12 +536,54 @@ def _numeric_anchors(text: str) -> list[str]:
     # Keeping the unit requirement avoids treating ordinary prose such as
     # ``one thing`` as a factual anchor while covering ``fourteen hours`` and
     # ``twenty years``.
+    # A decade is a unit of ten years, not a bare count.  Canonicalize it to
+    # elapsed years so that source-faithful pairs such as ``three decades``
+    # and ``三十年`` compare equal.  Do this before the general unit rule.
+    replace_many(
+        rf"\b({number_words})\s+or\s+({number_words})\s+decades?\b",
+        lambda match: [
+            word_numbers[match.group(1).casefold()] * 10,
+            word_numbers[match.group(2).casefold()] * 10,
+        ],
+        "quantity",
+    )
+    replace(
+        rf"\b({number_words})[\s-]+decades?\b",
+        lambda match: word_numbers[match.group(1).casefold()] * 10,
+        "quantity",
+    )
+    replace_many(
+        rf"\b({number_words})\s+or\s+({number_words})\s+(?:years?|months?|weeks?|days?|hours?|minutes?)\b",
+        lambda match: [
+            word_numbers[match.group(1).casefold()],
+            word_numbers[match.group(2).casefold()],
+        ],
+        "quantity",
+    )
+    # ``one`` in a person/job noun phrase is often an indefinite article.
+    # Retain it only for elapsed time, where the value is factual.
+    replace(
+        r"\bone[\s-]+(?:years?|months?|weeks?|days?|hours?|minutes?)\b",
+        lambda _match: 1,
+        "quantity",
+    )
+    replace(
+        r"\ba\s+hundred\s+and\s+(\w+)\b",
+        lambda match: 100 + word_numbers[match.group(1).casefold()],
+        "quantity",
+    )
+    replace(
+        r"\bhundred\s+or\s+so\s+(?:years?|languages|people|workers?)\b",
+        lambda _match: 100,
+        "quantity",
+    )
     quantity_units = (
         "years?|months?|weeks?|days?|hours?|minutes?|people|persons?|men|women|"
         "children|workers?|languages|objects|documents|countries|demands|decades?"
     )
+    explicit_cardinals = "|".join(word for word in word_numbers if word != "one")
     replace(
-        rf"\b({number_words})[\s-]+(?:{quantity_units})\b",
+        rf"\b({explicit_cardinals})[\s-]+(?:{quantity_units})\b",
         lambda match: word_numbers[match.group(1).casefold()],
         "quantity",
     )
@@ -544,8 +593,8 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"\b(thousands?|hundreds?)\s+of\s+(?:years?|objects?|images|documents|languages)\b",
-        lambda match: 1_000 if match.group(1).casefold().startswith("thousand") else 100,
+        r"\b(thousands?)\s+of\s+(?:years?|objects?|images|documents|languages)\b",
+        lambda _match: 1_000,
         "quantity",
     )
     replace(
@@ -636,6 +685,38 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )
+    replace_many(
+        r"([二两])\s*([三四五六七八九])?\s*(?:个)?\s*钟头",
+        lambda match: [
+            chinese_number[match.group(1)],
+            *([chinese_number[match.group(2)]] if match.group(2) else []),
+        ],
+        "quantity",
+    )
+    replace_many(
+        r"([二三四五六七八九两])\s*([二三四五六七八九])\s*(?:个)?\s*年",
+        lambda match: [chinese_number[match.group(1)], chinese_number[match.group(2)]],
+        "quantity",
+    )
+    replace_many(
+        r"([二三四五六七八九两])\s*([二三四五六七八九])?\s*十\s*年",
+        lambda match: [
+            chinese_number[match.group(1)] * 10,
+            *([chinese_number[match.group(2)] * 10] if match.group(2) else []),
+        ],
+        "quantity",
+    )
+    replace(
+        rf"({chinese_tens})\s*分钟",
+        lambda match: chinese_tens_value(match.group(1)),
+        "quantity",
+    )
+    replace(r"一\s*岁", lambda _match: 1, "quantity")
+    replace(
+        r"([二三四五六七八九两])\s*国",
+        lambda match: chinese_number[match.group(1)],
+        "quantity",
+    )
     # Chinese ``一个/一名/一位`` often supplies a natural singular article
     # where English makes no count claim.  Only treat ``一`` as an anchor for
     # elapsed-time units; other explicit Chinese cardinals remain comparable.
@@ -645,7 +726,7 @@ def _numeric_anchors(text: str) -> list[str]:
         "quantity",
     )
     replace(
-        r"(?<!十)([二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月|人|名|项要求)",
+        r"(?<!十)([二三四五六七八九两])\s*(?:个)?\s*(?:年|日|天|小时|周|星期|个月|人|名|项(?:要求|诉求))",
         lambda match: chinese_number[match.group(1)],
         "quantity",
     )

@@ -376,6 +376,15 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("thousands of documents") == _numeric_anchors("数千份文件")
     assert _numeric_anchors("seven demands") == _numeric_anchors("七项要求")
     assert _numeric_anchors("several decades") == _numeric_anchors("几十年") == []
+    assert _numeric_anchors("three decades") == _numeric_anchors("三十年")
+    assert _numeric_anchors("six demands") == _numeric_anchors("六项诉求")
+    assert _numeric_anchors("hundreds of years") == _numeric_anchors("数百年") == []
+    assert _numeric_anchors("two or three decades") == _numeric_anchors("二三十年")
+    assert _numeric_anchors("two or three hours") == _numeric_anchors("两三个钟头")
+    assert _balanced_numeric_anchors(_numeric_anchors("a hundred and sixty years")) == _balanced_numeric_anchors(_numeric_anchors("160年"))
+    assert _numeric_anchors("three or four years") == _numeric_anchors("三四年")
+    assert _numeric_anchors("within twenty minutes") == _numeric_anchors("二十分钟")
+    assert _numeric_anchors("three countries") == _numeric_anchors("三国")
 
 
 def test_relaxed_numeric_mode_allows_localized_zero_padded_title(tmp_path: Path) -> None:
