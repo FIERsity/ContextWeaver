@@ -139,6 +139,15 @@ def test_agent_batch_explicit_limit_overrides_adaptive_section_stop(
     assert not (project / "state" / "batch_strategy.json").exists()
 
 
+def test_agent_batch_production_defaults_are_chapter_sized(project: Path, tmp_path: Path) -> None:
+    segment_document(project, unit_size=1)
+    export_agent_batch(project, tmp_path / "default.jsonl")
+    strategy = json.loads((project / "state" / "batch_strategy.json").read_text())
+    assert strategy["target_source_chars"] == 120_000
+    assert strategy["max_units"] == 100
+    assert strategy["stop_at_section_boundary"] is True
+
+
 def test_agent_campaign_plans_all_pending_and_refreshes_progress(
     project: Path,
 ) -> None:

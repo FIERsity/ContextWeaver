@@ -32,8 +32,8 @@ from .models import (
 from .storage import append_jsonl, read_json, read_jsonl, write_json, write_jsonl
 
 STATE = "state"
-DEFAULT_AGENT_BATCH_SOURCE_CHARS = 40_000
-DEFAULT_AGENT_BATCH_MAX_UNITS = 30
+DEFAULT_AGENT_BATCH_SOURCE_CHARS = 120_000
+DEFAULT_AGENT_BATCH_MAX_UNITS = 100
 
 
 def stable_id(prefix: str, *parts: object) -> str:

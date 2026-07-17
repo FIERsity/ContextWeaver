@@ -27,6 +27,8 @@ from .strategy import HeuristicBookAnalysisAdapter, OpenAIBookAnalysisAdapter, a
 from .summaries import summarize_project
 from .summary_adapters import HeuristicSummaryAdapter, OpenAISummaryAdapter
 from .pipeline import (
+    DEFAULT_AGENT_BATCH_MAX_UNITS,
+    DEFAULT_AGENT_BATCH_SOURCE_CHARS,
     export_selected,
     export_agent_batch,
     plan_agent_campaign,
@@ -151,8 +153,8 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument(
         "--target-source-chars",
         type=int,
-        default=40_000,
-        help="Adaptive source-character budget (default: 40000)",
+        default=DEFAULT_AGENT_BATCH_SOURCE_CHARS,
+        help="Adaptive source-character budget (default: 120000)",
     )
     batch.add_argument("--force", action="store_true", help="Replace an existing work-package file")
     campaign = commands.add_parser(
@@ -160,8 +162,12 @@ def parser() -> argparse.ArgumentParser:
     )
     campaign.add_argument("project", type=Path)
     campaign.add_argument("--max-segments", type=int)
-    campaign.add_argument("--checkpoint-source-chars", type=int, default=40_000)
-    campaign.add_argument("--checkpoint-max-units", type=int, default=30)
+    campaign.add_argument(
+        "--checkpoint-source-chars", type=int, default=DEFAULT_AGENT_BATCH_SOURCE_CHARS
+    )
+    campaign.add_argument(
+        "--checkpoint-max-units", type=int, default=DEFAULT_AGENT_BATCH_MAX_UNITS
+    )
     campaign.add_argument(
         "--refresh", action="store_true", help="Replace the existing campaign scope and plan"
     )
