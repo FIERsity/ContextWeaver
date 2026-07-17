@@ -192,6 +192,8 @@ def test_optional_epub_exports_are_readable(project: Path) -> None:
 def test_reader_export_uses_chinese_outer_quotes_and_css_heading_heuristic() -> None:
     assert _reader_typography("她说：‘你好。’") == "她说：“你好。”"
     assert _reader_typography("她说：“所谓‘进步’，并不简单。”") == "她说：“所谓‘进步’，并不简单。”"
+    assert _reader_typography("所谓「好」的技术") == "所谓“好”的技术"
+    assert _reader_typography("她说：「所谓『进步』，并不简单。」") == "她说：“所谓‘进步’，并不简单。”"
     section = Section("section", "document", "Chapter", 1, 0)
     segment = Segment(
         "segment", "document", "section", 0, "Radio Days", raw="Radio Days"

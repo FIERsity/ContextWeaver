@@ -351,6 +351,35 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: int(match.group(1)),
         "century",
     )
+    chinese_centuries = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "十一": 11,
+        "十二": 12,
+        "十三": 13,
+        "十四": 14,
+        "十五": 15,
+        "十六": 16,
+        "十七": 17,
+        "十八": 18,
+        "十九": 19,
+        "二十": 20,
+        "二十一": 21,
+    }
+    chinese_century_words = "|".join(sorted(chinese_centuries, key=len, reverse=True))
+    replace(
+        rf"(?<![一二三四五六七八九十])({chinese_century_words})\s*世纪",
+        lambda match: chinese_centuries[match.group(1)],
+        "century",
+    )
     replace(
         r"(?<!\d)(\d{1,2})\s*世纪",
         lambda match: int(match.group(1)),
@@ -463,9 +492,24 @@ def _numeric_anchors(text: str) -> list[str]:
         "九": 9,
         "两": 2,
     }
+
+    def chinese_tens_value(value: str) -> int:
+        if "十" not in value:
+            return chinese_number[value]
+        tens, ones = value.split("十", 1)
+        return (chinese_number[tens] if tens else 1) * 10 + (
+            chinese_number[ones] if ones else 0
+        )
+
+    chinese_tens = r"(?:[一二三四五六七八九两]?十[一二三四五六七八九]?|[一二三四五六七八九两])"
     replace(
         r"[一二三四五六七八九两]\s*加\s*[一二三四五六七八九两]\s*等于\s*([一二三四五六七八九两])",
         lambda match: chinese_number[match.group(1)],
+        "quantity",
+    )
+    replace_many(
+        rf"({chinese_tens})\s*(?:至|到)\s*({chinese_tens})",
+        lambda match: [chinese_tens_value(match.group(1)), chinese_tens_value(match.group(2))],
         "quantity",
     )
     replace(
@@ -491,6 +535,7 @@ def _numeric_anchors(text: str) -> list[str]:
         * {"千": 1_000, "百万": 1_000_000, "十亿": 1_000_000_000}[match.group(2)],
         "quantity",
     )
+    replace(r"(?<![一二三四五六七八九两])十亿", lambda _match: 1_000_000_000, "quantity")
     replace(
         r"([一二三四五六七八九两])百",
         lambda match: chinese_number[match.group(1)] * 100,

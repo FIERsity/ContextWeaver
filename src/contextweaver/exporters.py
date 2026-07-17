@@ -177,17 +177,32 @@ def _reader_typography(value: str) -> str:
 
 
 def _normalize_quote_marks(value: str) -> str:
-    """Use double quotes for outer Chinese quotations and singles for nesting."""
+    """Use Mainland Chinese outer quotes and single quotes for nesting.
+
+    Imported reference drafts may contain Taiwan-style ``「…」`` quotation
+    marks.  Reader artifacts normalize both those and curly single outer
+    quotes to ``“…”`` while preserving meaningful nested quotations.
+    """
     output: list[str] = []
     double_depth = 0
     for character in value:
-        if character == "“":
+        if character in {"“", "「"} and double_depth == 0:
             double_depth += 1
-        elif character == "”" and double_depth:
+        elif character in {"”", "」"} and double_depth:
             double_depth -= 1
-        if character == "‘" and double_depth == 0:
+        if character == "『":
+            output.append("‘")
+            continue
+        if character == "』":
+            output.append("’")
+            continue
+        if character in {"‘", "「"} and double_depth == 0:
             output.append("“")
-        elif character == "’" and double_depth == 0:
+        elif character in {"’", "」"} and double_depth == 0:
+            output.append("”")
+        elif character == "「":
+            output.append("“")
+        elif character == "」":
             output.append("”")
         else:
             output.append(character)
