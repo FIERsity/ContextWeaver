@@ -276,6 +276,13 @@ def _numeric_anchors(text: str) -> list[str]:
     )
     replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
     replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
+    replace(r"\b(?:a|one)\s+millennium\b", lambda _match: 1_000, "quantity")
+    replace(
+        r"\ba\s+thousand\b",
+        lambda _match: 1_000,
+        "quantity",
+    )
+    replace(r"上千", lambda _match: 1_000, "quantity")
     replace(r"\b(\d+)(?:st|nd|rd|th)\b", lambda match: int(match.group(1)), "ordinal")
     replace(
         r"第\s*(\d+)(?!\s*(?:章|次世界大战))",
@@ -292,9 +299,9 @@ def _numeric_anchors(text: str) -> list[str]:
     )
     chinese_number = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5}
     replace(
-        r"([一二三四五])\s*(百万|十亿)",
+        r"([一二三四五])\s*(千|百万|十亿)",
         lambda match: chinese_number[match.group(1)]
-        * (1_000_000 if match.group(2) == "百万" else 1_000_000_000),
+        * {"千": 1_000, "百万": 1_000_000, "十亿": 1_000_000_000}[match.group(2)],
         "quantity",
     )
     replace(

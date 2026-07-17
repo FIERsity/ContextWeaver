@@ -248,6 +248,9 @@ def test_calendar_month_naturalization_is_not_an_invented_number(tmp_path: Path)
         ("World War II", "第二次世界大战"),
         ("around 1.5 million cars", "约150万辆汽车"),
         ("more than one million options", "一百万多个选项"),
+        ("five thousand bonuses", "五千笔奖金"),
+        ("for more than a millennium", "延续超过一千年"),
+        ("for more than a thousand years", "延续超过一千年"),
         ("the 5th Regiment", "第5团"),
     ],
 )
