@@ -223,10 +223,15 @@ def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> N
 
 
 def test_numeric_anchors_work_next_to_cjk() -> None:
-    from contextweaver.validation import _numbers, _numeric_anchors
+    from contextweaver.validation import (
+        _balanced_numeric_anchors,
+        _numbers,
+        _numeric_anchors,
+    )
 
     assert _numbers("In 1791, close to 90 percent") == ["1791", "90"]
     assert _numbers("1791年，接近90%") == ["1791", "90"]
+    assert _balanced_numeric_anchors(["5"]) == _balanced_numeric_anchors(["ordinal:5"])
     assert _numeric_anchors("First edition: May 2023") == ["2023", "month:5"]
     assert _numeric_anchors("第一版：2023年5月") == ["2023", "month:5"]
     assert _numeric_anchors("第一版：2023年五月") == ["2023", "month:5"]

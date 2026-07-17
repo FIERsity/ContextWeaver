@@ -126,8 +126,10 @@ def quality_issues(
 
 
 def _balanced_numeric_anchors(anchors: list[str]) -> list[str]:
-    """Treat explicit and spelled quantities as equal while retaining typed dates."""
-    return sorted(item.removeprefix("quantity:") for item in anchors)
+    """Align surface quantity/ordinal forms while retaining typed dates and periods."""
+    return sorted(
+        item.removeprefix("quantity:").removeprefix("ordinal:") for item in anchors
+    )
 
 
 def _issue(kind: str, message: str, segment_id: str, severity: str) -> ReviewIssue:
