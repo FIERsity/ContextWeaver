@@ -191,6 +191,43 @@ def test_compatible_chat_adapter_restores_dropped_numeric_reference_links() -> N
     assert adapter.translate(packet) == ["引文。[66](notes.html#fn66)"]
 
 
+def test_compatible_chat_adapter_retries_incomplete_response() -> None:
+    class Completions:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            self.calls += 1
+            translations = ["第一段"] if self.calls == 1 else ["第一段", "第二段"]
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(message=SimpleNamespace(content=json.dumps({"translations": translations})))
+                ]
+            )
+
+    completions = Completions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    packet = ContextPacket(
+        "unit",
+        [Segment("seg_1", "doc", "sec", 0, "One"), Segment("seg_2", "doc", "sec", 1, "Two")],
+        None,
+        None,
+        None,
+        [],
+        [],
+    )
+    sleeps: list[float] = []
+    adapter = OpenAICompatibleChatTranslationAdapter(
+        model="compatible-model",
+        base_url="https://example.invalid",
+        client=client,
+        sleep=sleeps.append,
+    )
+    assert adapter.translate(packet) == ["第一段", "第二段"]
+    assert completions.calls == 2
+    assert sleeps == [1]
+
+
 class FailSecondUnit(TranslationAdapter):
     name = "intermittent"
     model = "test"

@@ -203,6 +203,10 @@ class TranslationAdapter(ABC):
         """Return exactly one translated string for each source segment."""
 
 
+class _ResponseFormatError(ValueError):
+    """A transient provider response that is safe to retry without writing state."""
+
+
 class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
     """Chat Completions adapter for OpenAI-compatible providers."""
 
@@ -266,12 +270,15 @@ class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
                 content = (response.choices[0].message.content or "").strip()
                 if content.startswith("```json") and content.endswith("```"):
                     content = content.removeprefix("```json").removesuffix("```").strip()
-                result = json.loads(content or "{}")
+                try:
+                    result = json.loads(content or "{}")
+                except json.JSONDecodeError as exc:
+                    raise _ResponseFormatError("response was not valid JSON") from exc
                 translations = result.get("translations")
                 if not isinstance(translations, list):
-                    raise ValueError("response JSON must contain a translations array")
+                    raise _ResponseFormatError("response JSON must contain a translations array")
                 if len(translations) != len(packet.source_segments):
-                    raise ValueError("response translation count does not match source items")
+                    raise _ResponseFormatError("response translation count does not match source items")
                 return [
                     _restore_numeric_reference_links(segment.raw or segment.text, str(item))
                     for segment, item in zip(packet.source_segments, translations, strict=True)
@@ -451,7 +458,7 @@ def _retryable(exc: Exception) -> bool:
     return (
         status in {408, 409, 429}
         or (isinstance(status, int) and status >= 500)
-        or isinstance(exc, (TimeoutError, ConnectionError))
+        or isinstance(exc, (TimeoutError, ConnectionError, _ResponseFormatError))
     )
 
 
