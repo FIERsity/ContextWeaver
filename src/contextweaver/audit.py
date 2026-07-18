@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import posixpath
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from ebooklib import epub
+from bs4 import BeautifulSoup
+from zipfile import ZipFile
 
 from .coherence import scope_fingerprint
 from .models import (
@@ -332,6 +337,29 @@ def audit_project(root: Path, *, allow_mock: bool = False) -> dict[str, Any]:
             "files": [str(artifacts["translated.epub"]), str(artifacts["bilingual.epub"])],
         },
     )
+    resource_reports = {
+        name: _epub_resource_integrity(artifacts[name])
+        for name in ("translated.epub", "bilingual.epub")
+    }
+    expected_images = (
+        len(re.findall(r"!\[[^]]*\]\([^)]+\)", normalized.read_text(encoding="utf-8")))
+        if source.source_format == "epub"
+        else 0
+    )
+    resources_ok = artifact_exists and all(
+        report["broken_local_references"] == 0
+        and report["image_references"] >= expected_images
+        for report in resource_reports.values()
+    )
+    _check(
+        checks,
+        "epub_resource_integrity",
+        resources_ok,
+        {
+            "expected_source_image_references": expected_images,
+            "artifacts": resource_reports,
+        },
+    )
     provenance_path = root / STATE / "export_metadata.json"
     provenance = read_json(provenance_path) if provenance_path.exists() else {}
     _check(
@@ -420,6 +448,61 @@ def _epub_readable(path: Path) -> bool:
         return bool(book.spine and book.get_metadata("DC", "title"))
     except Exception:
         return False
+
+
+def _epub_resource_integrity(path: Path) -> dict[str, Any]:
+    """Check links and image targets in the generated EPUB archive itself."""
+    report: dict[str, Any] = {
+        "image_references": 0,
+        "image_resources": 0,
+        "local_links": 0,
+        "broken_local_references": 0,
+        "examples": [],
+    }
+    try:
+        with ZipFile(path) as archive:
+            names = set(archive.namelist())
+            report["image_resources"] = sum(
+                name.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"))
+                for name in names
+            )
+            ids: dict[str, set[str]] = {}
+            documents = [name for name in names if name.endswith((".xhtml", ".html", ".htm"))]
+            for name in documents:
+                soup = BeautifulSoup(archive.read(name), "html.parser")
+                ids[name] = {str(item.get("id")) for item in soup.find_all(id=True)}
+            for name in documents:
+                soup = BeautifulSoup(archive.read(name), "html.parser")
+                for node, attribute in ((item, "src") for item in soup.find_all("img")):
+                    report["image_references"] += 1
+                    _check_local_reference(report, names, ids, name, str(node.get(attribute, "")))
+                for node in soup.find_all("a"):
+                    href = str(node.get("href", ""))
+                    if _is_local_reference(href):
+                        report["local_links"] += 1
+                        _check_local_reference(report, names, ids, name, href)
+    except Exception as error:
+        report["broken_local_references"] = 1
+        report["examples"] = [f"Unreadable EPUB: {error}"]
+    return report
+
+
+def _is_local_reference(value: str) -> bool:
+    parsed = urlsplit(value)
+    return bool(value) and not parsed.scheme and not parsed.netloc and not value.startswith("#")
+
+
+def _check_local_reference(
+    report: dict[str, Any], names: set[str], ids: dict[str, set[str]], origin: str, value: str
+) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc:
+        return
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(origin), unquote(parsed.path)))
+    if target not in names or (parsed.fragment and parsed.fragment not in ids.get(target, set())):
+        report["broken_local_references"] += 1
+        if len(report["examples"]) < 8:
+            report["examples"].append(f"{origin}: {value}")
 
 
 def _check(

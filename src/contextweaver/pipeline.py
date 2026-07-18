@@ -984,6 +984,7 @@ def export_selected(
                 content,
                 provenance,
                 translated_titles,
+                root / source.original_path if source.source_format == "epub" else None,
             )
             paths.append(path)
     if section_ids is None and segment_ids is None:

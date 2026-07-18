@@ -22,6 +22,8 @@ Version 0.9 adds revision-tracked Section-title translation, localized Markdown/
 
 Version 0.10 adds bounded offline-Agent work packages and semantic numeric anchors for natural, source-backed Chinese renderings of dates, decades, centuries, historical ordinals, and scaled quantities.
 
+The current EPUB exporter also copies referenced image binaries from an EPUB source and rewrites resolvable intra-book chapter links to the generated EPUB sections. Export auditing verifies that image targets and local links resolve inside both EPUB artifacts.
+
 ## Quick start
 
 Python 3.11 or newer is required.
@@ -237,9 +239,9 @@ contextweaver export my-book --format all --content all \
   --reference-credit "Human translator, consulted edition"
 ```
 
-Generated EPUB files include metadata, navigation, one XHTML document per non-empty Section, and basic typography. Until binary asset copying is implemented, unresolved source images are rendered as explicit text placeholders rather than broken links.
+Generated EPUB files include metadata, navigation, one XHTML document per non-empty Section, basic typography, image binaries referenced by the imported EPUB, and rewritten resolvable chapter links. An image reference that cannot be resolved unambiguously is rendered as an explicit text placeholder rather than a broken link, and the final audit reports the missing resource coverage.
 
-Image-only Markdown Segments bypass the model through a deterministic structural passthrough, preserving their exact source marker and stable alignment without wasting translation calls. EPUB export still renders unresolved binary assets as explicit placeholders until asset copying is implemented.
+Image-only Markdown Segments bypass the model through a deterministic structural passthrough, preserving their exact source marker and stable alignment without wasting translation calls. EPUB-backed images are copied into EPUB exports; standalone Markdown image references remain explicit placeholders unless their source files are added through a future asset-import path.
 
 Final exports embed translation provenance in Markdown front matter, EPUB Dublin Core metadata, and a visible EPUB provenance page. The actual Agent/model is credited as translator; a consulted human edition is credited separately as translation reference. The source-language Segment is always authoritative. The locale-adapted reference export explicitly identifies itself as an OpenCC transformation, not a new translation from the original.
 

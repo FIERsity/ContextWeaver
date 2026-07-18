@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import html
 import json
+import mimetypes
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
+import ebooklib
 from ebooklib import epub
 from markdown_it import MarkdownIt
+from bs4 import BeautifulSoup
 
 from .models import Project, Section, Segment
 
@@ -61,6 +65,7 @@ def write_epub(
     content: str,
     provenance: dict[str, str] | None = None,
     translated_titles: dict[str, str] | None = None,
+    source_epub: Path | None = None,
 ) -> None:
     translated_titles = translated_titles or {}
     book = epub.EpubBook()
@@ -89,6 +94,9 @@ def write_epub(
         content=_CSS.encode("utf-8"),
     )
     book.add_item(css)
+    resources = _EpubResources(source_epub, sections, segments)
+    for asset in resources.assets:
+        book.add_item(asset)
     by_section: dict[str, list[Segment]] = {}
     for segment in segments:
         by_section.setdefault(segment.section_id, []).append(segment)
@@ -120,9 +128,9 @@ def write_epub(
             )
         for segment in section_segments:
             target = _reader_typography(translated[segment.id])
-            target_html = renderer.render(_safe_epub_markdown(target))
+            target_html = renderer.render(resources.rewrite_markdown(target))
             if content == "bilingual":
-                source_html = renderer.render(_safe_epub_markdown(segment.raw or segment.text))
+                source_html = renderer.render(resources.rewrite_markdown(segment.raw or segment.text))
                 body.extend(
                     [
                         '<section class="source" lang="'
@@ -130,16 +138,16 @@ def write_epub(
                         + '">',
                         source_html,
                         "</section>",
-                        '<section class="target">',
+                        f'<section class="target" id="{html.escape(segment.id)}">',
                         target_html,
                         "</section>",
                     ]
                 )
             else:
                 if _is_probable_subheading(segment):
-                    body.append(f"<h2>{html.escape(target)}</h2>")
+                    body.append(f'<h2 id="{html.escape(segment.id)}">{html.escape(target)}</h2>')
                 else:
-                    body.append(target_html)
+                    body.append(f'<section id="{html.escape(segment.id)}">{target_html}</section>')
         chapter = epub.EpubHtml(
             title=target_title,
             file_name=f"section-{section.ordinal:04d}.xhtml",
@@ -159,11 +167,107 @@ def write_epub(
     epub.write_epub(str(path), book)
 
 
-def _safe_epub_markdown(value: str) -> str:
-    """Replace unresolved source images with explicit text placeholders."""
-    return re.sub(
-        r"!\[([^]]*)\]\([^)]+\)", lambda match: f"*[Image: {match.group(1) or 'unlabeled'}]*", value
-    )
+class _EpubResources:
+    """Resolve imported EPUB assets and links without changing persisted source data."""
+
+    def __init__(self, source_epub: Path | None, sections: list[Section], segments: list[Segment]) -> None:
+        self._images: dict[str, str] = {}
+        self._documents: dict[str, str] = {}
+        self._anchors: dict[tuple[str, str], str] = {}
+        self.assets: list[epub.EpubItem] = []
+        if source_epub is None or not source_epub.exists():
+            return
+        try:
+            source = epub.read_epub(str(source_epub), options={"ignore_ncx": True})
+        except Exception:
+            return
+        image_items = [item for item in source.get_items() if item.media_type.startswith("image/")]
+        for item in image_items:
+            name = _source_name(item)
+            if not name:
+                continue
+            output_name = f"images/{len(self.assets):04d}-{Path(name).name}"
+            self.assets.append(
+                epub.EpubItem(
+                    uid=f"source-image-{len(self.assets):04d}",
+                    file_name=output_name,
+                    media_type=item.media_type or mimetypes.guess_type(name)[0] or "application/octet-stream",
+                    content=item.get_content(),
+                )
+            )
+            self._images[name] = output_name
+        document_texts: dict[str, str] = {}
+        for item in source.get_items():
+            if item.get_type() != ebooklib.ITEM_DOCUMENT:
+                continue
+            name = _source_name(item)
+            if name:
+                document_texts[name] = " ".join(BeautifulSoup(item.get_content(), "html.parser").get_text(" ", strip=True).split())
+        for name, document_text in document_texts.items():
+            section = _best_section_for_document(document_text, sections, segments)
+            if section:
+                self._documents[name] = f"section-{section.ordinal:04d}.xhtml"
+
+    def rewrite_markdown(self, value: str) -> str:
+        value = re.sub(r"!\[([^]]*)\]\(([^)]+)\)", self._rewrite_image, value)
+        return re.sub(r"(?<!!)\[([^]]+)\]\(([^)]+)\)", self._rewrite_link, value)
+
+    def _rewrite_image(self, match: re.Match[str]) -> str:
+        target = self._lookup(self._images, match.group(2))
+        if target:
+            return f"![{match.group(1)}]({target})"
+        return f"*[Image: {match.group(1) or 'unlabeled'}]*"
+
+    def _rewrite_link(self, match: re.Match[str]) -> str:
+        href = match.group(2)
+        parsed = urlsplit(href)
+        if parsed.scheme or parsed.netloc or not parsed.path:
+            return match.group(0)
+        target = self._lookup(self._documents, parsed.path)
+        if not target:
+            return match.group(0)
+        anchor = self._anchors.get((_normal_resource_name(parsed.path), parsed.fragment))
+        suffix = f"#{anchor}" if anchor else ""
+        return f"[{match.group(1)}]({target}{suffix})"
+
+    @staticmethod
+    def _lookup(values: dict[str, str], href: str) -> str | None:
+        normalized = _normal_resource_name(urlsplit(href).path)
+        if normalized in values:
+            return values[normalized]
+        matching = [value for name, value in values.items() if name.endswith(f"/{normalized}") or normalized.endswith(f"/{name}")]
+        if len(matching) == 1:
+            return matching[0]
+        basename = Path(normalized).name
+        matching = [value for name, value in values.items() if Path(name).name == basename]
+        return matching[0] if len(matching) == 1 else None
+
+
+def _source_name(item: object) -> str:
+    name = getattr(item, "file_name", "") or getattr(item, "get_name", lambda: "")()
+    return _normal_resource_name(str(name)) if name else ""
+
+
+def _normal_resource_name(value: str) -> str:
+    return "/".join(part for part in unquote(value).replace("\\", "/").split("/") if part not in {"", ".", ".."})
+
+
+def _best_section_for_document(
+    document_text: str, sections: list[Section], segments: list[Segment]
+) -> Section | None:
+    normalized = document_text.casefold()
+    candidates: list[tuple[int, Section]] = []
+    for section in sections:
+        score = 1000 if section.title and section.title.casefold() in normalized else 0
+        for segment in segments:
+            if segment.section_id != section.id:
+                continue
+            text = " ".join(segment.text.split())
+            if len(text) >= 12 and text.casefold() in normalized:
+                score += 1
+        if score:
+            candidates.append((score, section))
+    return max(candidates, key=lambda item: (item[0], -item[1].ordinal))[1] if candidates else None
 
 
 def _reader_typography(value: str) -> str:

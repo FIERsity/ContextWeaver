@@ -1,10 +1,12 @@
 from pathlib import Path
 import json
+from zipfile import ZipFile
 
 import pytest
 from ebooklib import epub
 
 from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
+from contextweaver.audit import _epub_resource_integrity
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -193,6 +195,43 @@ def test_optional_epub_exports_are_readable(project: Path) -> None:
         assert book.get_metadata("DC", "title")
         assert len(book.spine) == 4
         assert book.get_metadata("DC", "creator")[0][0].startswith("ContextWeaver Mock Adapter")
+
+
+def test_epub_export_copies_images_and_rewrites_internal_chapter_links(tmp_path: Path) -> None:
+    source = tmp_path / "source.epub"
+    book = epub.EpubBook()
+    book.set_identifier("resources")
+    book.set_title("Resource book")
+    image = epub.EpubItem(
+        uid="diagram",
+        file_name="images/diagram.png",
+        media_type="image/png",
+        content=b"\x89PNG\r\n\x1a\nresource-test",
+    )
+    one = epub.EpubHtml(title="One", file_name="one.xhtml")
+    one.content = '<h1>One</h1><p>See <a href="two.xhtml">chapter two</a>.</p><img src="images/diagram.png" alt="Diagram"/>'
+    two = epub.EpubHtml(title="Two", file_name="two.xhtml")
+    two.content = "<h1>Two</h1><p>Second chapter text.</p>"
+    for item in (image, one, two, epub.EpubNcx(), epub.EpubNav()):
+        book.add_item(item)
+    book.spine = [one, two]
+    epub.write_epub(str(source), book)
+
+    root = tmp_path / "project"
+    init_project(root, "Resources", "en", "zh-CN")
+    import_document(root, source)
+    segment_document(root)
+    translate_project(root, MockTranslationAdapter())
+    output = export_selected(root, {"epub"}, {"translated"})[0]
+
+    integrity = _epub_resource_integrity(output)
+    assert integrity["image_references"] == 1
+    assert integrity["image_resources"] >= 1
+    assert integrity["broken_local_references"] == 0
+    with ZipFile(output) as archive:
+        content = archive.read("EPUB/section-0000.xhtml").decode("utf-8")
+    assert "images/0000-diagram.png" in content
+    assert "section-0001.xhtml" in content
 
 
 def test_reader_export_uses_chinese_outer_quotes_and_css_heading_heuristic() -> None:

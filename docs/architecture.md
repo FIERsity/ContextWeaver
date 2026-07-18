@@ -36,7 +36,7 @@ Chapter and book coherence use `scope_reviews.jsonl`. Each ScopeReview fingerpri
 
 ## Evidence-backed completion
 
-`audit` converts the v1 acceptance target into durable evidence at `state/v1_audit.json` with a readable mirror at `notes/v1_audit.md`. It checks retained inputs, import reporting, stable structural coverage, strategy and summaries, ambiguity plus terminology/entity evidence, complete non-mock active translations, revision chains, current Segment/Section/book review coverage, deterministic validation, translated and bilingual Markdown/EPUB artifacts, EPUB readback, and provenance. Partial projects fail with counts rather than being mistaken for complete. `--allow-mock` is restricted to workflow verification and is not release evidence.
+`audit` converts the v1 acceptance target into durable evidence at `state/v1_audit.json` with a readable mirror at `notes/v1_audit.md`. It checks retained inputs, import reporting, stable structural coverage, strategy and summaries, ambiguity plus terminology/entity evidence, complete non-mock active translations, revision chains, current Segment/Section/book review coverage, deterministic validation, translated and bilingual Markdown/EPUB artifacts, EPUB readback, local EPUB link/image integrity, and provenance. Partial projects fail with counts rather than being mistaken for complete. `--allow-mock` is restricted to workflow verification and is not release evidence.
 
 ## Stable identity
 
@@ -96,12 +96,12 @@ Image-only Markdown Segments contain structure but no prose. The pipeline record
 
 ## Output rendering
 
-Export selection is the Cartesian choice of format (`markdown`, `epub`, or both) and content (`translated`, `bilingual`, or both). Every route uses the newest active TranslationRecord and the same pre-export validation gate. EPUB output contains metadata, navigation, CSS, and one XHTML chapter per non-empty Section. Markdown is rendered with embedded HTML disabled. Source image references are downgraded to labeled text placeholders until the importer can copy and rewrite binary assets safely.
+Export selection is the Cartesian choice of format (`markdown`, `epub`, or both) and content (`translated`, `bilingual`, or both). Every route uses the newest active TranslationRecord and the same pre-export validation gate. EPUB output contains metadata, navigation, CSS, one XHTML chapter per non-empty Section, copied image binaries referenced by an EPUB source, and rewritten resolvable chapter links. Markdown is rendered with embedded HTML disabled. Ambiguous or missing assets are downgraded to explicit labeled placeholders rather than emitted as broken links.
 
 `state/export_metadata.json` records the source title/language, target language, actual translating Agent/model, optional human-reference credit, and fidelity policy. The same information appears in Markdown front matter, EPUB Dublin Core fields, and a visible EPUB provenance page. Attribution is inferred from active TranslationRecords unless explicitly overridden; mock output is labeled as non-final.
 
 ## Known phase-one limits
 
-Nested Markdown constructs remain one top-level Segment. DOCX/EPUB normalization omits images and some footnote, hyperlink, nested-table, and style details. Knowledge extraction is conservative and oriented toward capitalized names. Deterministic rules cannot judge semantic fidelity or literary quality.
+Nested Markdown constructs remain one top-level Segment. DOCX/EPUB normalization still omits some footnote, hyperlink-anchor, nested-table, and style details; EPUB export restores referenced binary images and only rewrites links that can be matched safely to a generated Section. Knowledge extraction is conservative and oriented toward capitalized names. Deterministic rules cannot judge semantic fidelity or literary quality.
 
 The v1.0 completion gate is maintained in [v1-acceptance.md](v1-acceptance.md); new feature work should be judged against those exit criteria rather than expanding the framework indefinitely.
