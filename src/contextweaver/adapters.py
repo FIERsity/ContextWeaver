@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -262,12 +263,19 @@ class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
                     ],
                     response_format={"type": "json_object"},
                 )
-                content = response.choices[0].message.content
+                content = (response.choices[0].message.content or "").strip()
+                if content.startswith("```json") and content.endswith("```"):
+                    content = content.removeprefix("```json").removesuffix("```").strip()
                 result = json.loads(content or "{}")
                 translations = result.get("translations")
                 if not isinstance(translations, list):
                     raise ValueError("response JSON must contain a translations array")
-                return [str(item) for item in translations]
+                if len(translations) != len(packet.source_segments):
+                    raise ValueError("response translation count does not match source items")
+                return [
+                    _restore_numeric_reference_links(segment.raw or segment.text, str(item))
+                    for segment, item in zip(packet.source_segments, translations, strict=True)
+                ]
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):
                     raise RuntimeError(
@@ -405,6 +413,37 @@ def _packet_payload(packet: ContextPacket) -> dict[str, Any]:
         "human_reference": packet.reference_texts,
         "translation_strategy": packet.translation_strategy,
     }
+
+
+_NUMERIC_LINK = re.compile(r"(?<!!)\[(\d+)\]\(([^)]+)\)")
+_NUMERIC_REFERENCE = re.compile(r"(?<!!)\[(\d+)\](?!\()")
+
+
+def _restore_numeric_reference_links(source: str, translation: str) -> str:
+    """Restore dropped destinations for numeric Markdown footnote references.
+
+    Some compatible chat providers preserve a visible citation such as ``[66]``
+    but omit its retained EPUB destination.  This narrowly restores a source
+    destination only when the numeric markers remain in the same order; prose
+    links are deliberately left to the model and the structural validator.
+    """
+    source_links = list(_NUMERIC_LINK.finditer(source))
+    if not source_links:
+        return translation
+    target_markers = list(_NUMERIC_REFERENCE.finditer(translation))
+    if len(target_markers) < len(source_links):
+        return translation
+    restored: list[str] = []
+    cursor = 0
+    for index, source_link in enumerate(source_links):
+        marker = target_markers[index]
+        if marker.group(1) != source_link.group(1):
+            return translation
+        restored.append(translation[cursor : marker.start()])
+        restored.append(f"[{marker.group(1)}]({source_link.group(2)})")
+        cursor = marker.end()
+    restored.append(translation[cursor:])
+    return "".join(restored)
 
 
 def _retryable(exc: Exception) -> bool:

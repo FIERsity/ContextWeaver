@@ -169,6 +169,28 @@ def test_compatible_chat_adapter_returns_json_translations() -> None:
     assert adapter.translate(packet) == ["译文"]
 
 
+def test_compatible_chat_adapter_restores_dropped_numeric_reference_links() -> None:
+    class Completions:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content='```json\n{"translations":["引文。[66]"]}\n```'
+                        )
+                    )
+                ]
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    segment = Segment("seg_1", "doc", "sec", 0, "Citation", raw="Citation.[66](notes.html#fn66)")
+    packet = ContextPacket("unit", [segment], None, None, None, [], [])
+    adapter = OpenAICompatibleChatTranslationAdapter(
+        model="compatible-model", base_url="https://example.invalid", client=client
+    )
+    assert adapter.translate(packet) == ["引文。[66](notes.html#fn66)"]
+
+
 class FailSecondUnit(TranslationAdapter):
     name = "intermittent"
     model = "test"
