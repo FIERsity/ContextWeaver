@@ -333,6 +333,8 @@ def _is_probable_subheading(segment: Segment) -> bool:
     narrow heuristic avoids promoting ordinary prose, and never affects stored
     Segments or source alignment.
     """
+    if segment.kind == "subheading":
+        return True
     source = segment.text.strip()
     words = source.split()
     return (

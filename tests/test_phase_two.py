@@ -52,6 +52,27 @@ def test_structured_markdown_preserves_blocks_and_inline_markup(tmp_path: Path) 
     assert "footnote_ref" in segments[1].format_signature
 
 
+def test_setoff_plain_paragraph_subheading_is_preserved_without_changing_text(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.md"
+    source.write_text(
+        "# Chapter\n\n"
+        "Technical and resource organizations\n\n"
+        "The argument resumes here.\n\n"
+        "ISBN 13: 978-0-300-07815-2\n\n"
+        "• Large property\n",
+        encoding="utf-8",
+    )
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    assert segments[0].kind == "subheading"
+    assert segments[0].text == "Technical and resource organizations"
+    assert segments[1].kind == "paragraph"
+    assert segments[2].kind == "paragraph"
+    assert segments[3].kind == "paragraph"
+
+
 def test_plain_text_excludes_ordered_list_markers_from_content_checks() -> None:
     assert plain_text("12. **A cited work**") == "A cited work"
 

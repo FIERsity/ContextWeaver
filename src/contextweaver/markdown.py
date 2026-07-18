@@ -59,6 +59,8 @@ def parse_markdown(source: str) -> list[MarkdownBlock]:
             continue
         kind = _kind(token_type, raw)
         text = _plain(raw, kind)
+        if kind == "paragraph" and _looks_like_setoff_subheading(raw, text):
+            kind = "subheading"
         level = int(getattr(token, "tag", "h0")[1:]) if token_type == "heading_open" else 0
         blocks.append(
             MarkdownBlock(
@@ -121,6 +123,54 @@ def _kind(token_type: str, raw: str) -> str:
         "html_block": "html",
         "hr": "thematic_break",
     }.get(token_type, "footnote" if raw.lstrip().startswith("[^") else "paragraph")
+
+
+def _looks_like_setoff_subheading(raw: str, text: str) -> bool:
+    """Detect EPUB/CSS-only subheads that imported as plain paragraphs.
+
+    This intentionally does not promote long prose.  It is meant for single
+    set-off lines such as ``Illegible`` or ``Technical and resource
+    organizations`` where the original EPUB used CSS rather than heading tags.
+    """
+    stripped = raw.strip()
+    visible = text.strip()
+    if not stripped or not visible or "\n" in stripped:
+        return False
+    if stripped != visible:
+        return False
+    if len(visible) > 100:
+        return False
+    words = visible.split()
+    if not 1 <= len(words) <= 14:
+        return False
+    if re.search(r"[.!?;:。！？；：]$", visible):
+        return False
+    if visible.startswith(("—", "-", "–", "•", "*", "+", ">", "[", "(")):
+        return False
+    if re.match(r"^\d+(?:[.)]|$)", visible):
+        return False
+    if re.search(r"\b(?:ISBN|Library of Congress|copyright|edition|printed|press)\b", visible, re.I):
+        return False
+    if re.fullmatch(r"[\d\s\-–—.]+", visible):
+        return False
+    return _has_heading_case(visible)
+
+
+def _has_heading_case(value: str) -> bool:
+    lower_words = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "or", "the", "to", "with"}
+    meaningful = [word.strip("\"'“”‘’(),[]") for word in value.split()]
+    meaningful = [word for word in meaningful if word]
+    if len(meaningful) == 1:
+        return bool(re.match(r"[A-ZÀ-ÖØ-Þ]", meaningful[0]))
+    if re.match(r"[A-ZÀ-ÖØ-Þ]", meaningful[0]):
+        return True
+    titled = 0
+    for word in meaningful:
+        if word.casefold() in lower_words:
+            continue
+        if re.match(r"[A-ZÀ-ÖØ-Þ]", word):
+            titled += 1
+    return titled >= max(1, len([word for word in meaningful if word.casefold() not in lower_words]) - 1)
 
 
 def _plain(raw: str, kind: str) -> str:

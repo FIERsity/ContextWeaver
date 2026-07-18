@@ -275,6 +275,11 @@ def test_reader_export_uses_chinese_outer_quotes_and_css_heading_heuristic() -> 
     )
     output = render_markdown([section], [segment], {segment.id: "广播时代"}, "translated")
     assert "## 广播时代" in output
+    explicit = Segment(
+        "explicit", "document", "section", 1, "Illegible", kind="subheading", raw="Illegible"
+    )
+    output = render_markdown([section], [explicit], {explicit.id: "不可识读"}, "translated")
+    assert "## 不可识读" in output
 
 
 def test_validation_reports_missing_translation(project: Path) -> None:
