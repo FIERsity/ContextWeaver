@@ -435,6 +435,7 @@ def _numeric_anchors(text: str) -> list[str]:
     replace(r"二战", lambda _match: 2, "world-war")
     replace(r"\b(?:a|one)\s+millennium\b", lambda _match: 1_000, "quantity")
     replace(r"(?<![一二三四五六七八九两])千余?年", lambda _match: 1_000, "quantity")
+    replace(r"千百(?:个)?(?:方面|方式)?", lambda _match: 1_000, "quantity")
     replace(
         r"\ba\s+thousand\b",
         lambda _match: 1_000,

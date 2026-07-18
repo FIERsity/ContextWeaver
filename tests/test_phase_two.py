@@ -452,6 +452,7 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("from twenty-one to thirty-seven years") == _numeric_anchors("二十一至三十七岁")
     assert _numeric_anchors("one billion francs") == _numeric_anchors("十亿法郎")
     assert _numeric_anchors("a thousand years") == _numeric_anchors("千余年")
+    assert _numeric_anchors("in a thousand ways") == _numeric_anchors("在千百个方面")
     assert _numeric_anchors("twelve thousand years") == _numeric_anchors("一万二千年")
     assert _numeric_anchors("两千年乃至七千年") == ["quantity:2000", "quantity:7000"]
     assert _numeric_anchors("at a crossroads") == _numeric_anchors("站在十字路口") == []
