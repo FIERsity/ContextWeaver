@@ -432,6 +432,7 @@ def _numeric_anchors(text: str) -> list[str]:
     replace(r"(?:第\s*一个|最初\s*一个)世纪", lambda _match: 1, "century")
     replace(r"\bWorld\s+War\s+II\b", lambda _match: 2, "world-war")
     replace(r"第\s*(?:二|2)\s*次世界大战", lambda _match: 2, "world-war")
+    replace(r"二战", lambda _match: 2, "world-war")
     replace(r"\b(?:a|one)\s+millennium\b", lambda _match: 1_000, "quantity")
     replace(r"(?<![一二三四五六七八九两])千余?年", lambda _match: 1_000, "quantity")
     replace(
@@ -608,6 +609,10 @@ def _numeric_anchors(text: str) -> list[str]:
         lambda match: magnitudes[match.group(1).casefold()],
         "quantity",
     )
+    # Handle fractional article quantities before the generic ``a million``
+    # matcher below can consume their suffix.  This keeps source-faithful
+    # renderings such as ``half a million`` and ``50 万`` comparable.
+    replace(r"\bhalf\s+a\s+million\b", lambda _match: 500_000, "quantity")
     replace(r"\ba\s+million\b", lambda _match: 1_000_000, "quantity")
     chinese_number = {
         "一": 1,

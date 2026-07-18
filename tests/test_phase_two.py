@@ -431,6 +431,8 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
         "decade:1970",
     ]
     assert _numeric_anchors("more than 7.5 million") == _numeric_anchors("750多万")
+    assert _numeric_anchors("half a million tons") == _numeric_anchors("50万吨")
+    assert _numeric_anchors("World War II") == _numeric_anchors("二战")
     assert _numeric_anchors("between the ages of eight and twelve") == [
         "quantity:12",
         "quantity:8",
