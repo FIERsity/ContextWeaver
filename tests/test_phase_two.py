@@ -487,6 +487,7 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("within twenty minutes") == _numeric_anchors("二十分钟")
     assert _numeric_anchors("three countries") == _numeric_anchors("三国")
     assert _numeric_anchors(".93 liters") == _numeric_anchors("0.93升")
+    assert _numeric_anchors("a parenthetical note).33") == ["33"]
     assert _numeric_anchors("at least seventeen different aunes") == _numeric_anchors(
         "至少十七种不同的 aune"
     )

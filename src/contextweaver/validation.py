@@ -767,7 +767,9 @@ def _numeric_anchors(text: str) -> list[str]:
     )
     # Some historical sources write a leading-zero decimal as ``.93``.
     # Normalize it before the generic numeric matcher can misread it as ``93``.
-    working = re.sub(r"(?<![A-Za-z0-9_.])\.(\d+)\b", r"0.\1", working)
+    # A normalized EPUB footnote can follow closing punctuation as ``).33``.
+    # That is a citation marker, not a leading-zero decimal such as ``.93``.
+    working = re.sub(r"(?<![A-Za-z0-9_.\)\]])\.(\d+)\b", r"0.\1", working)
     # A bare cardinal normally needs a unit to be a factual anchor, but this
     # count construction is explicit even when the noun is domain-specific
     # (for example ``seventeen different aunes``).
