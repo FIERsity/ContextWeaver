@@ -145,6 +145,14 @@ For online translation, set `OPENAI_API_KEY` and use the optional adapter. Reque
 contextweaver translate my-book --adapter openai --model gpt-5.6-sol --requests-per-minute 30
 ```
 
+Providers that implement OpenAI **Chat Completions** but not the OpenAI Responses API can use the deliberately separate compatible adapter. It keeps the same resumable records, pacing, retries, and validation, but requests JSON-object output instead of Responses JSON Schema. For example, DeepSeek documents `https://api.deepseek.com` and `deepseek-v4-pro` for its OpenAI-compatible Chat Completions API. Keep credentials in the shell environment, never in the project directory:
+
+```bash
+export OPENAI_API_KEY="..."
+contextweaver translate my-book --adapter compatible \
+  --base-url https://api.deepseek.com --model deepseek-v4-pro --requests-per-minute 20
+```
+
 Selective retranslation appends a linked immutable revision:
 
 ```bash

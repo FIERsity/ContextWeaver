@@ -9,6 +9,7 @@ import pytest
 
 from contextweaver.adapters import (
     MockTranslationAdapter,
+    OpenAICompatibleChatTranslationAdapter,
     OpenAITranslationAdapter,
     TranslationAdapter,
 )
@@ -149,6 +150,23 @@ def test_openai_adapter_retries_rate_limits_without_network() -> None:
     assert adapter.translate(packet) == ["译文"]
     assert responses.calls == 2
     assert sleeps == [0.25]
+
+
+def test_compatible_chat_adapter_returns_json_translations() -> None:
+    class Completions:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            assert kwargs["response_format"] == {"type": "json_object"}
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"translations":["译文"]}'))]
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    segment = Segment("seg_1", "doc", "sec", 0, "Source")
+    packet = ContextPacket("unit", [segment], None, None, None, [], [])
+    adapter = OpenAICompatibleChatTranslationAdapter(
+        model="compatible-model", base_url="https://example.invalid", client=client
+    )
+    assert adapter.translate(packet) == ["译文"]
 
 
 class FailSecondUnit(TranslationAdapter):

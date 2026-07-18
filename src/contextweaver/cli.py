@@ -12,6 +12,7 @@ from .adapters import (
     BibliographyPassthroughAdapter,
     HeuristicReviewAdapter,
     MockTranslationAdapter,
+    OpenAICompatibleChatTranslationAdapter,
     OpenAIReviewAdapter,
     OpenAITranslationAdapter,
 )
@@ -74,9 +75,15 @@ def parser() -> argparse.ArgumentParser:
     trans = commands.add_parser("translate", help="Translate pending units")
     trans.add_argument("project", type=Path)
     trans.add_argument(
-        "--adapter", choices=["mock", "openai", "bibliography-passthrough"], default="mock"
+        "--adapter",
+        choices=["mock", "openai", "compatible", "bibliography-passthrough"],
+        default="mock",
     )
     trans.add_argument("--model", default="gpt-5.6-sol")
+    trans.add_argument(
+        "--base-url",
+        help="Required for --adapter compatible; an OpenAI-compatible Chat Completions URL",
+    )
     trans.add_argument("--requests-per-minute", type=float, default=60)
     trans.add_argument(
         "--segment", action="append", default=[], help="Retranslate a segment ID; repeatable"
@@ -331,6 +338,12 @@ def run(argv: list[str] | None = None) -> int:
                 if args.adapter == "mock"
                 else BibliographyPassthroughAdapter()
                 if args.adapter == "bibliography-passthrough"
+                else OpenAICompatibleChatTranslationAdapter(
+                    model=args.model,
+                    base_url=args.base_url or "",
+                    requests_per_minute=args.requests_per_minute,
+                )
+                if args.adapter == "compatible"
                 else OpenAITranslationAdapter(
                     model=args.model, requests_per_minute=args.requests_per_minute
                 )

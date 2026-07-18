@@ -202,6 +202,90 @@ class TranslationAdapter(ABC):
         """Return exactly one translated string for each source segment."""
 
 
+class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
+    """Chat Completions adapter for OpenAI-compatible providers."""
+
+    name = "openai-compatible-chat"
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        base_url: str,
+        api_key: str | None = None,
+        client: Any = None,
+        max_retries: int = 4,
+        requests_per_minute: float = 60,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if not base_url:
+            raise ValueError("base_url is required for an OpenAI-compatible adapter")
+        if requests_per_minute <= 0:
+            raise ValueError("requests_per_minute must be positive")
+        if client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:
+                raise RuntimeError("Install ContextWeaver with the 'openai' extra") from exc
+            key = api_key or os.environ.get("OPENAI_API_KEY")
+            if not key:
+                raise RuntimeError("OPENAI_API_KEY is required for the compatible adapter")
+            client = OpenAI(api_key=key, base_url=base_url)
+        self.client = client
+        self.model = model
+        self.max_retries = max_retries
+        self.interval = 60 / requests_per_minute
+        self.sleep = sleep
+        self.clock = clock
+        self._last_request: float | None = None
+
+    def translate(self, packet: ContextPacket) -> list[str]:
+        self._limit()
+        payload = _packet_payload(packet)
+        instructions = (
+            "Translate faithfully into the project's target language. The source items are the "
+            "sole semantic authority: never add, omit, soften, strengthen, or change a claim. "
+            "Preserve Markdown structure and inline markup. Return exactly one translation per "
+            "source item. When targeting zh-CN, write idiomatic Mainland Simplified Chinese and "
+            "avoid English-shaped syntax while retaining all facts, qualifications, relations, "
+            "tone, and rhetoric. Return JSON only, exactly in this shape: "
+            '{"translations":["one translation for each source item in order"]}.'
+        )
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": instructions},
+                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                    ],
+                    response_format={"type": "json_object"},
+                )
+                content = response.choices[0].message.content
+                result = json.loads(content or "{}")
+                translations = result.get("translations")
+                if not isinstance(translations, list):
+                    raise ValueError("response JSON must contain a translations array")
+                return [str(item) for item in translations]
+            except Exception as exc:
+                if attempt >= self.max_retries or not _retryable(exc):
+                    raise RuntimeError(
+                        f"Compatible chat translation failed after {attempt + 1} attempt(s): {exc}"
+                    ) from exc
+                delay = _retry_after(exc) or min(2**attempt, 30)
+                self.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _limit(self) -> None:
+        now = self.clock()
+        if self._last_request is not None:
+            wait = self.interval - (now - self._last_request)
+            if wait > 0:
+                self.sleep(wait)
+        self._last_request = self.clock()
+
+
 class MockTranslationAdapter(TranslationAdapter):
     name = "mock"
     model = "deterministic-copy-v1"

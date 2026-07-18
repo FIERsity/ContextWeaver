@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 import json
 import re
 import shutil
@@ -532,6 +533,29 @@ def _context_index(
 
 
 def translate_project(
+    root: Path,
+    adapter: TranslationAdapter,
+    segment_ids: set[str] | None = None,
+    section_ids: set[str] | None = None,
+    term: str | None = None,
+    reason: str = "initial",
+    max_units: int | None = None,
+) -> tuple[int, int]:
+    """Translate under an exclusive project lock to prevent duplicate revisions."""
+    lock_path = root / STATE / "translate.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError("A translation run is already active for this project") from exc
+    try:
+        os.write(descriptor, str(os.getpid()).encode())
+        return _translate_project(root, adapter, segment_ids, section_ids, term, reason, max_units)
+    finally:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
+
+
+def _translate_project(
     root: Path,
     adapter: TranslationAdapter,
     segment_ids: set[str] | None = None,
