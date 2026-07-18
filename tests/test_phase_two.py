@@ -228,6 +228,28 @@ def test_compatible_chat_adapter_retries_incomplete_response() -> None:
     assert sleeps == [1]
 
 
+def test_compatible_chat_adapter_retries_lost_markdown_emphasis() -> None:
+    class Completions:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            self.calls += 1
+            text = "标题" if self.calls == 1 else "*标题*"
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({"translations": [text]})))]
+            )
+
+    completions = Completions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    adapter = OpenAICompatibleChatTranslationAdapter(
+        model="compatible-model", base_url="https://example.invalid", client=client, sleep=lambda _: None
+    )
+    packet = ContextPacket("unit", [Segment("seg_1", "doc", "sec", 0, "Title", raw="*Title*")], None, None, None, [], [])
+    assert adapter.translate(packet) == ["*标题*"]
+    assert completions.calls == 2
+
+
 class FailSecondUnit(TranslationAdapter):
     name = "intermittent"
     model = "test"

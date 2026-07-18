@@ -12,6 +12,7 @@ from threading import Lock
 from typing import Any, Callable
 
 from .models import ContextPacket, TranslationRecord
+from .markdown import format_signature
 
 
 @dataclass(frozen=True)
@@ -283,10 +284,17 @@ class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
                     raise _ResponseFormatError("response JSON must contain a translations array")
                 if len(translations) != len(packet.source_segments):
                     raise _ResponseFormatError("response translation count does not match source items")
-                return [
+                rendered = [
                     _restore_numeric_reference_links(segment.raw or segment.text, str(item))
                     for segment, item in zip(packet.source_segments, translations, strict=True)
                 ]
+                for segment, output in zip(packet.source_segments, rendered, strict=True):
+                    source_markup = segment.raw or segment.text
+                    if format_signature(source_markup) != format_signature(output):
+                        raise _ResponseFormatError(
+                            f"Markdown format markers do not match for {segment.id}"
+                        )
+                return rendered
             except Exception as exc:
                 if attempt >= self.max_retries or not _retryable(exc):
                     raise RuntimeError(
