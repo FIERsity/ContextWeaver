@@ -85,6 +85,7 @@ def parser() -> argparse.ArgumentParser:
         help="Required for --adapter compatible; an OpenAI-compatible Chat Completions URL",
     )
     trans.add_argument("--requests-per-minute", type=float, default=60)
+    trans.add_argument("--workers", type=int, default=1, help="Concurrent independent units")
     trans.add_argument(
         "--segment", action="append", default=[], help="Retranslate a segment ID; repeatable"
     )
@@ -356,6 +357,7 @@ def run(argv: list[str] | None = None) -> int:
                 args.term,
                 args.reason,
                 args.max_units,
+                args.workers,
             )
             LOG.info("Translated %d segments; skipped %d completed segments", written, skipped)
         elif args.command == "validate":

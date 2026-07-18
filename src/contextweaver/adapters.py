@@ -8,6 +8,7 @@ import json
 import os
 import re
 import time
+from threading import Lock
 from typing import Any, Callable
 
 from .models import ContextPacket, TranslationRecord
@@ -93,6 +94,7 @@ class OpenAIReviewAdapter(ReviewAdapter):
         self.sleep = sleep
         self.clock = clock
         self._last_request: float | None = None
+        self._limit_lock = Lock()
 
     def review(
         self, packet: ContextPacket, translations: list[TranslationRecord]
@@ -186,12 +188,13 @@ class OpenAIReviewAdapter(ReviewAdapter):
         raise AssertionError("unreachable")
 
     def _limit(self) -> None:
-        now = self.clock()
-        if self._last_request is not None:
-            wait = self.interval - (now - self._last_request)
-            if wait > 0:
-                self.sleep(wait)
-        self._last_request = self.clock()
+        with self._limit_lock:
+            now = self.clock()
+            if self._last_request is not None:
+                wait = self.interval - (now - self._last_request)
+                if wait > 0:
+                    self.sleep(wait)
+            self._last_request = self.clock()
 
 
 class TranslationAdapter(ABC):
@@ -244,6 +247,7 @@ class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
         self.sleep = sleep
         self.clock = clock
         self._last_request: float | None = None
+        self._limit_lock = Lock()
 
     def translate(self, packet: ContextPacket) -> list[str]:
         self._limit()
@@ -293,12 +297,13 @@ class OpenAICompatibleChatTranslationAdapter(TranslationAdapter):
         raise AssertionError("unreachable")
 
     def _limit(self) -> None:
-        now = self.clock()
-        if self._last_request is not None:
-            wait = self.interval - (now - self._last_request)
-            if wait > 0:
-                self.sleep(wait)
-        self._last_request = self.clock()
+        with self._limit_lock:
+            now = self.clock()
+            if self._last_request is not None:
+                wait = self.interval - (now - self._last_request)
+                if wait > 0:
+                    self.sleep(wait)
+            self._last_request = self.clock()
 
 
 class MockTranslationAdapter(TranslationAdapter):

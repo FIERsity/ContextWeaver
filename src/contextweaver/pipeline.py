@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -540,6 +541,7 @@ def translate_project(
     term: str | None = None,
     reason: str = "initial",
     max_units: int | None = None,
+    workers: int = 1,
 ) -> tuple[int, int]:
     """Translate under an exclusive project lock to prevent duplicate revisions."""
     lock_path = root / STATE / "translate.lock"
@@ -549,6 +551,12 @@ def translate_project(
         raise RuntimeError("A translation run is already active for this project") from exc
     try:
         os.write(descriptor, str(os.getpid()).encode())
+        if workers < 1:
+            raise ValueError("workers must be at least 1")
+        if workers > 1:
+            return _translate_project_parallel(
+                root, adapter, segment_ids, section_ids, term, reason, max_units, workers
+            )
         return _translate_project(root, adapter, segment_ids, section_ids, term, reason, max_units)
     finally:
         os.close(descriptor)
@@ -660,6 +668,120 @@ def _translate_project(
     translation_status = "completed" if len(active) == total_segments else "pending"
     _update_manifest(root, translation_count=len(active), steps={"translate": translation_status})
     return written, skipped
+
+
+def _translate_project_parallel(
+    root: Path,
+    adapter: TranslationAdapter,
+    segment_ids: set[str] | None,
+    section_ids: set[str] | None,
+    term: str | None,
+    reason: str,
+    max_units: int | None,
+    workers: int,
+) -> tuple[int, int]:
+    """Translate independent units concurrently; only this thread appends records."""
+    if max_units is not None and max_units < 1:
+        raise ValueError("max_units must be at least 1")
+    units = read_jsonl(root / STATE / "units.jsonl", TranslationUnit)
+    if not units:
+        raise RuntimeError("No translation units. Run segment first.")
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    selected = _selected_segments(root, segment_ids, section_ids, term)
+    retranslate = any(value for value in (segment_ids, section_ids, term))
+    work: list[tuple[TranslationUnit, ContextPacket, list[Segment]]] = []
+    skipped = 0
+    for unit in units:
+        packet = build_context(root, unit)
+        candidates = [item for item in packet.source_segments if selected is None or item.id in selected]
+        pending = [item for item in candidates if retranslate or item.id not in active]
+        if not pending:
+            skipped += len(candidates)
+            continue
+        if max_units is not None and len(work) >= max_units:
+            break
+        work.append((unit, packet, pending))
+
+    written = 0
+    failures: list[Exception] = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_translate_unit, adapter, unit, packet, pending): unit
+            for unit, packet, pending in work
+        }
+        for future in as_completed(futures):
+            unit = futures[future]
+            try:
+                translated = future.result()
+            except Exception as exc:
+                failures.append(exc)
+                continue
+            written += _append_unit_translations(root, unit, translated, active, reason)
+    total_segments = len(read_jsonl(root / STATE / "segments.jsonl", Segment))
+    _update_manifest(
+        root,
+        translation_count=len(active),
+        steps={"translate": "completed" if len(active) == total_segments else "pending"},
+    )
+    if failures:
+        raise RuntimeError(f"Translation failed for {len(failures)} unit(s): {failures[0]}") from failures[0]
+    return written, skipped
+
+
+def _translate_unit(
+    adapter: TranslationAdapter,
+    unit: TranslationUnit,
+    packet: ContextPacket,
+    pending: list[Segment],
+) -> list[tuple[Segment, str, str, str, str]]:
+    model_pending: list[Segment] = []
+    translated: list[tuple[Segment, str, str, str, str]] = []
+    for segment in pending:
+        structural = _structural_translation(segment)
+        if structural is None:
+            model_pending.append(segment)
+        else:
+            translated.append((segment, structural, "structural-passthrough", "deterministic-v1", "translate-v1-structural-passthrough"))
+    if not model_pending:
+        return translated
+    pending_packet = ContextPacket(
+        unit.id, model_pending, packet.previous_text, packet.next_text, packet.section_summary,
+        packet.glossary, packet.entities, packet.reference_texts, packet.source_language,
+        packet.target_language, packet.translation_strategy,
+    )
+    outputs = adapter.translate(pending_packet)
+    if len(outputs) != len(model_pending):
+        raise RuntimeError(f"Adapter returned {len(outputs)} outputs for {len(model_pending)} segments")
+    translated.extend(
+        (segment, output, adapter.name, adapter.model, "translate-v3-source-faithful-natural-zh")
+        for segment, output in zip(model_pending, outputs, strict=True)
+    )
+    return translated
+
+
+def _append_unit_translations(
+    root: Path,
+    unit: TranslationUnit,
+    translated: list[tuple[Segment, str, str, str, str]],
+    active: dict[str, TranslationRecord],
+    reason: str,
+) -> int:
+    written = 0
+    for segment, output, adapter_name, model_name, prompt_version in translated:
+        if not output.strip():
+            raise RuntimeError(f"Adapter returned empty translation for {segment.id}")
+        previous = active.get(segment.id)
+        revision = previous.revision + 1 if previous else 1
+        record = TranslationRecord(
+            stable_id("tr", unit.id, segment.id, adapter_name, model_name, revision), unit.id,
+            segment.id, output, adapter_name, model_name, prompt_version,
+            datetime.now(timezone.utc).isoformat(), hashlib.sha256(segment.text.encode()).hexdigest(),
+            "completed", revision, previous.id if previous else None, reason,
+        )
+        append_jsonl(root / STATE / "translations.jsonl", record)
+        active[segment.id] = record
+        written += 1
+    return written
 
 
 _IMAGE_ONLY = re.compile(r"^!\[[^\]]*\]\([^\n)]+\)\s*$")

@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import threading
 from zipfile import ZipFile
 
 import pytest
@@ -97,6 +98,32 @@ def test_bounded_translation_rejects_invalid_limit(project: Path) -> None:
     segment_document(project)
     with pytest.raises(ValueError, match="max_units"):
         translate_project(project, MockTranslationAdapter(), max_units=0)
+
+
+def test_parallel_translation_writes_complete_units_without_duplicates(project: Path) -> None:
+    segment_document(project, unit_size=1)
+
+    class ParallelAdapter(TranslationAdapter):
+        name = "parallel-test"
+        model = "test"
+
+        def __init__(self) -> None:
+            self.barrier = threading.Barrier(2)
+
+        def translate(self, packet: ContextPacket) -> list[str]:
+            self.barrier.wait(timeout=1)
+            return [f"parallel:{item.text}" for item in packet.source_segments]
+
+    assert translate_project(project, ParallelAdapter(), max_units=2, workers=2) == (2, 0)
+    records = read_jsonl(project / "state" / "translations.jsonl", TranslationRecord)
+    assert len(records) == 2
+    assert len({item.segment_id for item in records}) == 2
+
+
+def test_parallel_translation_rejects_invalid_worker_count(project: Path) -> None:
+    segment_document(project)
+    with pytest.raises(ValueError, match="workers"):
+        translate_project(project, MockTranslationAdapter(), workers=0)
 
 
 def test_agent_batch_exports_pending_context_and_resumes_safely(

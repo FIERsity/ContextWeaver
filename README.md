@@ -151,6 +151,9 @@ Providers that implement OpenAI **Chat Completions** but not the OpenAI Response
 export OPENAI_API_KEY="..."
 contextweaver translate my-book --adapter compatible \
   --base-url https://api.deepseek.com --model deepseek-v4-pro --requests-per-minute 20
+# Opt-in concurrent independent units; start conservatively and validate each checkpoint:
+contextweaver translate my-book --adapter compatible --base-url https://api.deepseek.com \
+  --model deepseek-v4-flash --workers 2 --requests-per-minute 30
 ```
 
 Selective retranslation appends a linked immutable revision:
