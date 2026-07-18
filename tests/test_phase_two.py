@@ -385,6 +385,10 @@ def test_numeric_anchors_work_next_to_cjk() -> None:
     assert _numeric_anchors("three or four years") == _numeric_anchors("三四年")
     assert _numeric_anchors("within twenty minutes") == _numeric_anchors("二十分钟")
     assert _numeric_anchors("three countries") == _numeric_anchors("三国")
+    assert _numeric_anchors(".93 liters") == _numeric_anchors("0.93升")
+    assert _numeric_anchors("at least seventeen different aunes") == _numeric_anchors(
+        "至少十七种不同的 aune"
+    )
 
 
 def test_relaxed_numeric_mode_allows_localized_zero_padded_title(tmp_path: Path) -> None:
