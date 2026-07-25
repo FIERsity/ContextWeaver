@@ -964,13 +964,13 @@ def validate_project(
     from .validation import quality_issues
 
     issues.extend(quality_issues(segments, records, _glossary(root), numeric_mode))
-    if numeric_mode == "strict":
-        resolutions = read_jsonl(root / STATE / "audit_resolutions.jsonl", AuditResolution)
-        accepted = {
-            (item.segment_id, item.translation_record_id, item.issue_id)
-            for item in resolutions
-            if item.disposition == "source_backed"
-        }
+    resolutions = read_jsonl(root / STATE / "audit_resolutions.jsonl", AuditResolution)
+    accepted = {
+        (item.segment_id, item.translation_record_id, item.issue_id)
+        for item in resolutions
+        if item.disposition == "source_backed"
+    }
+    if accepted:
         issues = [
             replace(issue, severity="warning", status="resolved")
             if issue.severity == "error"

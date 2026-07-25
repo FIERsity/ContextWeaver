@@ -392,6 +392,53 @@ def test_source_backed_audit_resolution_is_bound_to_current_record(tmp_path: Pat
     ]
 
 
+def test_source_backed_audit_resolution_applies_in_relaxed_mode(tmp_path: Path) -> None:
+    """A source-backed resolution accepted under the strict v1 audit must also
+    downgrade the matching error during the relaxed validation used by export.
+    Otherwise the export gate diverges from the release audit gate.
+    """
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nOutput rose 25% in 2024.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    draft = tmp_path / "draft.jsonl"
+    draft.write_text(
+        json.dumps({"segment_id": segments[0].id, "translated_text": "产出在2024年上升20%。"})
+        + "\n",
+        encoding="utf-8",
+    )
+    import_translation_draft(root, draft, "codex-agent", "test", "initial")
+    issue = next(
+        item
+        for item in validate_project(root, numeric_mode="relaxed")
+        if item.severity == "error"
+    )
+    record = active_translations(
+        read_jsonl(root / "state" / "translations.jsonl", TranslationRecord)
+    )[segments[0].id]
+    resolution = tmp_path / "resolution.jsonl"
+    resolution.write_text(
+        json.dumps(
+            {
+                "segment_id": segments[0].id,
+                "translation_record_id": record.id,
+                "issue_id": issue.id,
+                "rationale": "The target renders a source-backed 25% anchor via a verified rendering.",
+                "evidence": "Reviewer confirmed the rendering aligns with source context.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert import_audit_resolutions(root, resolution, "codex-agent", "test") == 1
+    relaxed = validate_project(root, numeric_mode="relaxed")
+    assert [(item.severity, item.status) for item in relaxed if item.id == issue.id] == [
+        ("warning", "resolved")
+    ]
+    relaxed_errors = [item for item in relaxed if item.severity == "error"]
+    assert relaxed_errors == []
+
+
 def test_balanced_numeric_mode_warns_for_target_only_number(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
     source.write_text("# One\n\nNo quantity was stated.\n", encoding="utf-8")

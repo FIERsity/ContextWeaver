@@ -115,6 +115,19 @@ def write_epub(
     for section in sections:
         section_segments = by_section.get(section.id, [])
         if not section_segments:
+            # Emit a placeholder page so cross-section links and the table of
+            # contents resolve even for part dividers with no body segments.
+            target_title = translated_titles.get(section.id, section.title)
+            body = [f"<h1>{html.escape(target_title)}</h1>"]
+            chapter = epub.EpubHtml(
+                title=target_title,
+                file_name=f"section-{section.ordinal:04d}.xhtml",
+                lang=project.target_language,
+            )
+            chapter.content = "\n".join(body)
+            chapter.add_item(css)
+            book.add_item(chapter)
+            chapters.append(chapter)
             continue
         target_title = translated_titles.get(section.id, section.title)
         body = [f"<h1>{html.escape(target_title)}</h1>"]
