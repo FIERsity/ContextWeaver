@@ -239,6 +239,7 @@ def _append_block(
     latin_font: str,
 ) -> None:
     from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Image, Paragraph, Spacer
 
     image = re.fullmatch(r"!\[[^]]*\]\((assets/[^)]+)\)", value.strip())
@@ -251,9 +252,26 @@ def _append_block(
         return
 
     if segment.kind == "table":
-        rows = _markdown_table(value, latin_font)
+        rows = _markdown_table(value)
         if rows:
-            table = table_cls(rows, repeatRows=1, hAlign="LEFT")
+            cell_style = ParagraphStyle(
+                "CWAcademicTableCell", parent=body, fontSize=8, leading=11, spaceAfter=0
+            )
+            header_style = ParagraphStyle(
+                "CWAcademicTableHeader", parent=cell_style, fontName=body.fontName
+            )
+            rendered_rows = [
+                [Paragraph(_mixed_font_markup(cell, latin_font), header_style if row_index == 0 else cell_style) for cell in row]
+                for row_index, row in enumerate(rows)
+            ]
+            column_widths = None
+            if len(rows[0]) == 3:
+                # Citation / author / title is the common bibliography-table
+                # shape. Reserve enough room for brackets such as ``[10]``.
+                column_widths = [14 * mm, 36 * mm, 110 * mm]
+            table = table_cls(
+                rendered_rows, colWidths=column_widths, repeatRows=1, hAlign="LEFT"
+            )
             table.setStyle(
                 table_style(
                     [
@@ -280,7 +298,7 @@ def _append_block(
         story.append(Paragraph(_mixed_font_markup(text, latin_font).replace("\n", "<br/>"), style))
 
 
-def _markdown_table(value: str, latin_font: str | None = None) -> list[list[str]]:
+def _markdown_table(value: str) -> list[list[str]]:
     lines = [line.strip() for line in value.splitlines() if line.strip().startswith("|")]
     if len(lines) < 2:
         return []
@@ -289,7 +307,7 @@ def _markdown_table(value: str, latin_font: str | None = None) -> list[list[str]
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if index == 1 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
             continue
-        rows.append([_mixed_font_markup(cell, latin_font) if latin_font else _escape(cell) for cell in cells])
+        rows.append(cells)
     return rows
 
 
