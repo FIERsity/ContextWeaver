@@ -3,13 +3,102 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
 
-from .models import Entity, GlossaryEntry, Segment
+from .models import Entity, GlossaryEntry, Segment, TerminologyCandidate, TerminologyDecision
 from .pipeline import STATE, stable_id
-from .storage import read_jsonl, write_jsonl
+from .storage import append_jsonl, read_jsonl, write_jsonl
+
+_AUTHORITY_RANK = {"standard": 5, "official": 4, "academic": 3, "publisher": 2, "community": 1}
+
+
+def import_terminology_candidates(root: Path, source: Path) -> tuple[int, int]:
+    """Append verified terminology candidates from a strict JSONL interchange file."""
+    segments = {item.id for item in read_jsonl(root / STATE / "segments.jsonl", Segment)}
+    existing = {item.id for item in read_jsonl(root / STATE / "terminology_candidates.jsonl", TerminologyCandidate)}
+    written = skipped = 0
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        expected = {
+            "term", "candidate_translation", "authority", "source_title", "source_url",
+            "source_excerpt", "evidence_segment_ids", "confidence",
+        }
+        if set(raw) != expected:
+            raise ValueError(f"{source}:{line_number}: expected exactly {sorted(expected)}")
+        authority = raw["authority"]
+        if authority not in _AUTHORITY_RANK:
+            raise ValueError(f"{source}:{line_number}: unsupported authority {authority!r}")
+        if not isinstance(raw["evidence_segment_ids"], list) or not raw["evidence_segment_ids"]:
+            raise ValueError(f"{source}:{line_number}: evidence_segment_ids must be a non-empty list")
+        if unknown := set(raw["evidence_segment_ids"]) - segments:
+            raise ValueError(f"{source}:{line_number}: unknown evidence segments {sorted(unknown)}")
+        if not all(isinstance(raw[key], str) and raw[key].strip() for key in expected - {"evidence_segment_ids", "confidence", "authority"}):
+            raise ValueError(f"{source}:{line_number}: textual fields must be non-empty strings")
+        if not raw["source_url"].startswith("https://"):
+            raise ValueError(f"{source}:{line_number}: source_url must use https://")
+        confidence = float(raw["confidence"])
+        if not 0 <= confidence <= 1:
+            raise ValueError(f"{source}:{line_number}: confidence must be between 0 and 1")
+        candidate = TerminologyCandidate(
+            stable_id("termcand", *(raw[key] for key in sorted(expected))),
+            raw["term"].strip(), raw["candidate_translation"].strip(), authority,
+            raw["source_title"].strip(), raw["source_url"].strip(), raw["source_excerpt"].strip(),
+            list(raw["evidence_segment_ids"]), confidence,
+        )
+        if candidate.id in existing:
+            skipped += 1
+            continue
+        append_jsonl(root / STATE / "terminology_candidates.jsonl", candidate)
+        existing.add(candidate.id)
+        written += 1
+    return written, skipped
+
+
+def adjudicate_terminology(root: Path, approve_authoritative: bool = False) -> tuple[int, int]:
+    """Select highest-ranked sourced candidates, preserving every existing glossary row."""
+    candidates = read_jsonl(root / STATE / "terminology_candidates.jsonl", TerminologyCandidate)
+    existing_glossary = _read_glossary(root / STATE / "glossary.csv")
+    existing_terms = {item.term.casefold() for item in existing_glossary}
+    existing_decisions = {item.id for item in read_jsonl(root / STATE / "terminology_decisions.jsonl", TerminologyDecision)}
+    grouped: dict[str, list[TerminologyCandidate]] = defaultdict(list)
+    for candidate in candidates:
+        grouped[candidate.term.casefold()].append(candidate)
+    additions: list[GlossaryEntry] = []
+    written = skipped = 0
+    for key, items in sorted(grouped.items()):
+        selected = max(items, key=lambda item: (_AUTHORITY_RANK[item.authority], item.confidence, item.id))
+        automatic = approve_authoritative and selected.authority in {"standard", "official"} and selected.confidence >= 0.9
+        status = "approved" if automatic else "proposed"
+        digest = hashlib.sha256("|".join(sorted(item.id for item in items)).encode()).hexdigest()
+        decision = TerminologyDecision(
+            stable_id("termdec", key, digest, status), selected.term, selected.id,
+            selected.candidate_translation, status,
+            f"Selected {selected.authority} source '{selected.source_title}' by authority tier and confidence.",
+            selected.evidence_segment_ids,
+        )
+        if decision.id not in existing_decisions:
+            append_jsonl(root / STATE / "terminology_decisions.jsonl", decision)
+            existing_decisions.add(decision.id)
+            written += 1
+        else:
+            skipped += 1
+        if key not in existing_terms:
+            additions.append(GlossaryEntry(
+                selected.term, selected.candidate_translation, [],
+                f"Terminology decision {decision.id}; source: {selected.source_title} ({selected.source_url})",
+                selected.evidence_segment_ids[0], selected.confidence,
+                selected.evidence_segment_ids, status,
+            ))
+            existing_terms.add(key)
+    if additions:
+        _write_glossary(root / STATE / "glossary.csv", existing_glossary + additions)
+    return written, skipped
 
 
 def propose_knowledge(

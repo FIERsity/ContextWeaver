@@ -14,7 +14,7 @@ from contextweaver.adapters import (
     TranslationAdapter,
 )
 from contextweaver.academic_validation import academic_issues
-from contextweaver.knowledge import propose_knowledge
+from contextweaver.knowledge import adjudicate_terminology, import_terminology_candidates, propose_knowledge
 from contextweaver.markdown import plain_text
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -192,6 +192,46 @@ def test_knowledge_proposals_have_evidence_and_preserve_edits(tmp_path: Path) ->
     path.write_text(path.read_text().replace("Mara,,", "Mara,玛拉,"), encoding="utf-8")
     glossary, _ = propose_knowledge(root)
     assert next(item for item in glossary if item.term == "Mara").preferred_translation == "玛拉"
+
+
+def test_sourced_terminology_adjudication_is_resumable_and_preserves_glossary(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nThe OECD issued a report.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    candidates = tmp_path / "terms.jsonl"
+    candidates.write_text(
+        json.dumps(
+            {
+                "term": "OECD",
+                "candidate_translation": "经济合作与发展组织",
+                "authority": "official",
+                "source_title": "OECD Chinese terminology",
+                "source_url": "https://www.oecd.org/",
+                "source_excerpt": "经济合作与发展组织（OECD）",
+                "evidence_segment_ids": [segments[0].id],
+                "confidence": 0.98,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert import_terminology_candidates(root, candidates) == (1, 0)
+    assert adjudicate_terminology(root, approve_authoritative=True) == (1, 0)
+    glossary = (root / "state" / "glossary.csv").read_text(encoding="utf-8")
+    assert "经济合作与发展组织" in glossary
+    assert ",approved\n" in glossary
+    assert "OECD Chinese terminology" in glossary
+    assert adjudicate_terminology(root, approve_authoritative=True) == (0, 1)
+
+    candidates.write_text(
+        candidates.read_text(encoding="utf-8").replace("经济合作与发展组织", "经合组织"),
+        encoding="utf-8",
+    )
+    assert import_terminology_candidates(root, candidates) == (1, 0)
+    assert adjudicate_terminology(root, approve_authoritative=True) == (1, 0)
+    assert (root / "state" / "glossary.csv").read_text(encoding="utf-8").count("经济合作与发展组织") == 1
 
 
 def test_selective_retranslation_creates_revision_chain(tmp_path: Path) -> None:

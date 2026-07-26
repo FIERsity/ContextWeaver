@@ -78,6 +78,34 @@ class GlossaryEntry(Record):
 
 
 @dataclass(frozen=True)
+class TerminologyCandidate(Record):
+    """A candidate rendering backed by a traceable external terminology source."""
+
+    id: str
+    term: str
+    candidate_translation: str
+    authority: Literal["standard", "official", "academic", "publisher", "community"]
+    source_title: str
+    source_url: str
+    source_excerpt: str
+    evidence_segment_ids: list[str]
+    confidence: float
+
+
+@dataclass(frozen=True)
+class TerminologyDecision(Record):
+    """Append-only selection of one candidate without replacing glossary history."""
+
+    id: str
+    term: str
+    selected_candidate_id: str
+    selected_translation: str
+    status: Literal["proposed", "approved"]
+    rationale: str
+    evidence_segment_ids: list[str]
+
+
+@dataclass(frozen=True)
 class Entity(Record):
     id: str
     name: str

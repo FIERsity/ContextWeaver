@@ -24,7 +24,7 @@ from .coherence_adapters import (
     HeuristicCoherenceReviewAdapter,
     OpenAICoherenceReviewAdapter,
 )
-from .knowledge import propose_knowledge
+from .knowledge import adjudicate_terminology, import_terminology_candidates, propose_knowledge
 from .reference import import_reference, simplify_reference_outputs
 from .review import review_project
 from .strategy import HeuristicBookAnalysisAdapter, OpenAIBookAnalysisAdapter, analyze_project
@@ -160,6 +160,19 @@ def parser() -> argparse.ArgumentParser:
     )
     extract.add_argument("project", type=Path)
     extract.add_argument("--minimum-occurrences", type=int, default=2)
+    terminology_import = commands.add_parser(
+        "terminology-import", help="Append sourced terminology candidates from strict JSONL"
+    )
+    terminology_import.add_argument("project", type=Path)
+    terminology_import.add_argument("candidates", type=Path)
+    terminology_adjudicate = commands.add_parser(
+        "terminology-adjudicate", help="Select sourced terminology candidates without overwriting glossary rows"
+    )
+    terminology_adjudicate.add_argument("project", type=Path)
+    terminology_adjudicate.add_argument(
+        "--approve-authoritative", action="store_true",
+        help="Automatically approve only high-confidence standard or official sources",
+    )
     migrate = commands.add_parser(
         "migrate", help="Migrate persisted project data to the latest schema"
     )
@@ -422,6 +435,12 @@ def run(argv: list[str] | None = None) -> int:
         elif args.command == "extract-knowledge":
             glossary, entities = propose_knowledge(args.project, args.minimum_occurrences)
             LOG.info("Proposed %d glossary entries and %d entities", len(glossary), len(entities))
+        elif args.command == "terminology-import":
+            written, skipped = import_terminology_candidates(args.project, args.candidates)
+            LOG.info("Imported %d terminology candidates; skipped %d duplicates", written, skipped)
+        elif args.command == "terminology-adjudicate":
+            written, skipped = adjudicate_terminology(args.project, args.approve_authoritative)
+            LOG.info("Recorded %d terminology decisions; skipped %d unchanged decisions", written, skipped)
         elif args.command == "migrate":
             LOG.info("Project schema is now version %d", migrate_project(args.project))
         elif args.command == "reference-import":

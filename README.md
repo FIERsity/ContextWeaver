@@ -45,6 +45,8 @@ contextweaver segment my-book --unit-size 2
 contextweaver analyze my-book --adapter heuristic
 contextweaver summarize my-book --adapter heuristic
 contextweaver extract-knowledge my-book
+contextweaver terminology-import my-book authoritative-terms.jsonl
+contextweaver terminology-adjudicate my-book --approve-authoritative
 contextweaver translate-titles my-book --adapter mock
 contextweaver reference-import my-book human-translation.epub --language zh-TW
 contextweaver reference-simplify my-book --format all
@@ -83,6 +85,8 @@ contextweaver auto my-book --adapter openai --max-units 10
 ```
 
 `auto` writes `state/translation_brief.json` and a readable mirror at `notes/translation_brief.md`. The strategy describes genre, disciplinary register, source and target style, audience, translation principles, and evidence-backed concept rules. It is injected into every ContextPacket. After translation, the default Critic/Reviser pass checks semantic fidelity, concept sense, terminology, rhetoric, formatting, and natural Chinese. Segment, Section, and book review repeat until a full round produces no new revision, with `--max-review-rounds` preventing unbounded churn. Human editing is optional; normal reruns preserve the existing brief, while `--refresh-analysis` explicitly regenerates it. Use `--skip-review` only when intentionally trading quality for cost or a workflow test.
+
+For discipline-specific terminology, `terminology-import` accepts strict JSONL candidates with an HTTPS source, a short source excerpt, an authority tier (`standard`, `official`, `academic`, `publisher`, or `community`), confidence, and source Segment evidence. `terminology-adjudicate` records an append-only decision using authority then confidence, and never overwrites existing glossary rows. It creates proposals by default; `--approve-authoritative` automatically approves only high-confidence `standard` or `official` candidates. Only approved glossary rows enter translation ContextPackets.
 
 For a costly long-book run, `--max-units N` processes at most N currently pending TranslationUnits and exits successfully with durable records. Repeating the same command resumes from the next pending unit. A bounded incomplete run never starts Section/book review, validation, or export; omitting the limit eventually follows the normal full completion path.
 
