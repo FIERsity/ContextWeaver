@@ -313,7 +313,7 @@ skills/contextweaver-translate/
 └── scripts/        # read-only project inspection
 ```
 
-See [docs/architecture.md](docs/architecture.md) for invariants and extension points, and [CONTRIBUTING.md](CONTRIBUTING.md) before making changes.
+See [docs/architecture.md](docs/architecture.md) for invariants and extension points, [docs/ecosystem.md](docs/ecosystem.md) for the boundary with PaperWeaver, and [CONTRIBUTING.md](CONTRIBUTING.md) before making changes.
 
 ## Roadmap
 
