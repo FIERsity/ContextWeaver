@@ -101,6 +101,94 @@ def adjudicate_terminology(root: Path, approve_authoritative: bool = False) -> t
     return written, skipped
 
 
+def export_terminology_research_plan(root: Path, output: Path, force: bool = False) -> int:
+    """Write bounded, source-evidenced research tasks for an Agent or terminology service."""
+    if output.exists() and not force:
+        raise FileExistsError(f"Terminology research plan already exists: {output}; pass --force")
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    known = {item.id: item for item in segments}
+    glossary = _read_glossary(root / STATE / "glossary.csv")
+    strategy_path = root / STATE / "translation_brief.json"
+    strategy = json.loads(strategy_path.read_text(encoding="utf-8")) if strategy_path.exists() else {}
+    tasks: dict[str, dict[str, object]] = {}
+    for entry in glossary:
+        if entry.status == "approved" or not entry.term.strip():
+            continue
+        tasks[entry.term.casefold()] = {
+            "term": entry.term,
+            "evidence_segment_ids": entry.evidence_segment_ids,
+        }
+    for rule in strategy.get("concept_rules", []):
+        term = str(rule.get("source_term", "")).strip()
+        evidence = rule.get("evidence_segment_ids", [])
+        if term and isinstance(evidence, list):
+            tasks.setdefault(term.casefold(), {"term": term, "evidence_segment_ids": evidence})
+    rows = []
+    for item in sorted(tasks.values(), key=lambda value: str(value["term"]).casefold()):
+        evidence_ids = [
+            item_id
+            for item_id in item["evidence_segment_ids"]
+            if item_id in known and known[item_id].kind in {"paragraph", "blockquote"}
+        ]
+        if not evidence_ids:
+            continue
+        rows.append(
+            {
+                "term": item["term"],
+                "source_language": _project_language(root, "source_language"),
+                "target_language": _project_language(root, "target_language"),
+                "domains": strategy.get("domains", []),
+                "evidence": [
+                    {"segment_id": item_id, "source_text": known[item_id].text[:800]}
+                    for item_id in evidence_ids[:8]
+                ],
+                "preferred_sources": [
+                    {
+                        "id": "unterm",
+                        "authority": "official",
+                        "url": "https://unterm.un.org/",
+                        "scope": "United Nations system terminology; use only when the concept is in scope.",
+                    },
+                    {
+                        "id": "iate",
+                        "authority": "official",
+                        "url": "https://iate.europa.eu/",
+                        "scope": "European Union terminology; use only when the concept is in scope.",
+                    },
+                ],
+                "candidate_contract": {
+                    "required_fields": [
+                        "term", "candidate_translation", "authority", "source_title", "source_url",
+                        "source_excerpt", "evidence_segment_ids", "confidence",
+                    ],
+                    "rules": [
+                        "Return only candidates supported by the cited source.",
+                        "Do not infer a Chinese rendering from an English-only source.",
+                        "Do not elevate a source outside its disciplinary scope.",
+                    ],
+                },
+            }
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+    return len(rows)
+
+
+def terminology_impact(root: Path, term: str) -> list[Segment]:
+    """Return the stable source Segments affected by a terminology correction."""
+    needle = term.casefold().strip()
+    if not needle:
+        raise ValueError("term must be non-empty")
+    return [
+        item for item in read_jsonl(root / STATE / "segments.jsonl", Segment)
+        if needle in item.text.casefold()
+    ]
+
+
+def _project_language(root: Path, field: str) -> str:
+    return str(json.loads((root / "project.json").read_text(encoding="utf-8"))[field])
+
+
 def propose_knowledge(
     root: Path, minimum_occurrences: int = 2
 ) -> tuple[list[GlossaryEntry], list[Entity]]:

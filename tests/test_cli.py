@@ -39,3 +39,6 @@ def test_cli_imports_and_adjudicates_sourced_terminology(tmp_path: Path) -> None
     assert run(["terminology-import", str(project), str(candidates)]) == 0
     assert run(["terminology-adjudicate", str(project), "--approve-authoritative"]) == 0
     assert "经济合作与发展组织" in (project / "state" / "glossary.csv").read_text(encoding="utf-8")
+    plan = tmp_path / "research.jsonl"
+    assert run(["terminology-research-plan", str(project), str(plan)]) == 0
+    assert run(["terminology-impact", str(project), "--term", "OECD"]) == 0

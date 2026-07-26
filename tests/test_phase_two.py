@@ -14,7 +14,13 @@ from contextweaver.adapters import (
     TranslationAdapter,
 )
 from contextweaver.academic_validation import academic_issues
-from contextweaver.knowledge import adjudicate_terminology, import_terminology_candidates, propose_knowledge
+from contextweaver.knowledge import (
+    adjudicate_terminology,
+    export_terminology_research_plan,
+    import_terminology_candidates,
+    propose_knowledge,
+    terminology_impact,
+)
 from contextweaver.markdown import plain_text
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -232,6 +238,28 @@ def test_sourced_terminology_adjudication_is_resumable_and_preserves_glossary(tm
     assert import_terminology_candidates(root, candidates) == (1, 0)
     assert adjudicate_terminology(root, approve_authoritative=True) == (1, 0)
     assert (root / "state" / "glossary.csv").read_text(encoding="utf-8").count("经济合作与发展组织") == 1
+
+
+def test_terminology_research_plan_keeps_source_evidence_bounded(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nMara studies institutional power.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    _, segments, _ = segment_document(root)
+    glossary = root / "state" / "glossary.csv"
+    glossary.write_text(
+        glossary.read_text(encoding="utf-8")
+        + f"power,,,,,0.7,{segments[0].id},proposed\n",
+        encoding="utf-8",
+    )
+    plan = tmp_path / "research.jsonl"
+    assert export_terminology_research_plan(root, plan) == 1
+    row = json.loads(plan.read_text(encoding="utf-8"))
+    assert row["term"] == "power"
+    assert row["evidence"][0]["segment_id"] == segments[0].id
+    assert {source["id"] for source in row["preferred_sources"]} == {"iate", "unterm"}
+    assert terminology_impact(root, "POWER") == [segments[0]]
+    with pytest.raises(FileExistsError):
+        export_terminology_research_plan(root, plan)
 
 
 def test_selective_retranslation_creates_revision_chain(tmp_path: Path) -> None:

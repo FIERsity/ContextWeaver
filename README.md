@@ -88,6 +88,10 @@ contextweaver auto my-book --adapter openai --max-units 10
 
 For discipline-specific terminology, `terminology-import` accepts strict JSONL candidates with an HTTPS source, a short source excerpt, an authority tier (`standard`, `official`, `academic`, `publisher`, or `community`), confidence, and source Segment evidence. `terminology-adjudicate` records an append-only decision using authority then confidence, and never overwrites existing glossary rows. It creates proposals by default; `--approve-authoritative` automatically approves only high-confidence `standard` or `official` candidates. Only approved glossary rows enter translation ContextPackets.
 
+`terminology-research-plan my-book work/term-research.jsonl` generates bounded Agent-ready research tasks from unresolved glossary rows and strategy concepts. Each task contains only the necessary source evidence, disciplinary hints, the target language pair, official-source starting points (UNTERM and IATE), and the strict candidate-return contract. An Agent must respect the source's subject scope and return a candidate only when that source supports the actual Chinese rendering. After adjudication, `terminology-impact my-book --term TERM` lists the exact source Segments to retranslate with `translate --term TERM --reason terminology-update`, followed by normal review and validation.
+
+Use [examples/terminology-candidates.jsonl](examples/terminology-candidates.jsonl) as a field-level template only: replace its placeholder Segment ID and confirm the cited source record before import.
+
 For a costly long-book run, `--max-units N` processes at most N currently pending TranslationUnits and exits successfully with durable records. Repeating the same command resumes from the next pending unit. A bounded incomplete run never starts Section/book review, validation, or export; omitting the limit eventually follows the normal full completion path.
 
 The review stage is independently resumable and scope-selectable:

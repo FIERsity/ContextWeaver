@@ -24,7 +24,13 @@ from .coherence_adapters import (
     HeuristicCoherenceReviewAdapter,
     OpenAICoherenceReviewAdapter,
 )
-from .knowledge import adjudicate_terminology, import_terminology_candidates, propose_knowledge
+from .knowledge import (
+    adjudicate_terminology,
+    export_terminology_research_plan,
+    import_terminology_candidates,
+    propose_knowledge,
+    terminology_impact,
+)
 from .reference import import_reference, simplify_reference_outputs
 from .review import review_project
 from .strategy import HeuristicBookAnalysisAdapter, OpenAIBookAnalysisAdapter, analyze_project
@@ -173,6 +179,17 @@ def parser() -> argparse.ArgumentParser:
         "--approve-authoritative", action="store_true",
         help="Automatically approve only high-confidence standard or official sources",
     )
+    terminology_plan = commands.add_parser(
+        "terminology-research-plan", help="Create bounded authoritative-source research tasks"
+    )
+    terminology_plan.add_argument("project", type=Path)
+    terminology_plan.add_argument("output", type=Path)
+    terminology_plan.add_argument("--force", action="store_true")
+    terminology_impact_parser = commands.add_parser(
+        "terminology-impact", help="List stable Segments affected by a source term"
+    )
+    terminology_impact_parser.add_argument("project", type=Path)
+    terminology_impact_parser.add_argument("--term", required=True)
     migrate = commands.add_parser(
         "migrate", help="Migrate persisted project data to the latest schema"
     )
@@ -441,6 +458,12 @@ def run(argv: list[str] | None = None) -> int:
         elif args.command == "terminology-adjudicate":
             written, skipped = adjudicate_terminology(args.project, args.approve_authoritative)
             LOG.info("Recorded %d terminology decisions; skipped %d unchanged decisions", written, skipped)
+        elif args.command == "terminology-research-plan":
+            count = export_terminology_research_plan(args.project, args.output, args.force)
+            LOG.info("Wrote %d terminology research task(s) to %s", count, args.output)
+        elif args.command == "terminology-impact":
+            impacted = terminology_impact(args.project, args.term)
+            print(json.dumps([{"segment_id": item.id, "source_text": item.text} for item in impacted], ensure_ascii=False, indent=2))
         elif args.command == "migrate":
             LOG.info("Project schema is now version %d", migrate_project(args.project))
         elif args.command == "reference-import":
