@@ -29,6 +29,7 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
         from reportlab.lib.units import mm
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError as error:
         raise RuntimeError("Install ContextWeaver with the 'pdf' extra to render academic PDFs") from error
@@ -47,15 +48,15 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
     if content != "source" and sections and sections[0].id in titles:
         article_title = titles[sections[0].id].translated_title
 
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    chinese_font, latin_font = _register_academic_pdf_fonts(pdfmetrics, UnicodeCIDFont, TTFont)
     styles = getSampleStyleSheet()
-    body = ParagraphStyle("CWAcademicBody", parent=styles["BodyText"], fontName="STSong-Light", fontSize=10.5, leading=17, spaceAfter=6)
+    body = ParagraphStyle("CWAcademicBody", parent=styles["BodyText"], fontName=chinese_font, fontSize=10.5, leading=17, spaceAfter=6)
     source_style = ParagraphStyle("CWAcademicSource", parent=body, textColor=colors.HexColor("#555555"), fontSize=8.5, leading=13)
-    title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName="STSong-Light", fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
+    title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName=chinese_font, fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
     credit_style = ParagraphStyle(
         "CWAcademicCredit", parent=body, fontSize=9, leading=13, alignment=TA_CENTER, spaceAfter=12
     )
-    heading_style = ParagraphStyle("CWAcademicHeading", parent=styles["Heading2"], fontName="STSong-Light", fontSize=13, leading=19, spaceBefore=12, spaceAfter=7)
+    heading_style = ParagraphStyle("CWAcademicHeading", parent=styles["Heading2"], fontName=chinese_font, fontSize=13, leading=19, spaceBefore=12, spaceAfter=7)
     caption_style = ParagraphStyle("CWAcademicCaption", parent=body, fontSize=9, leading=14, leftIndent=8, textColor=colors.HexColor("#333333"))
     output = root / "output" / "pdf" / f"{content}.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -87,14 +88,14 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
         for segment in section_segments:
             target = active[segment.id].translated_text if segment.id in active else segment.raw or segment.text
             if content == "source":
-                _append_block(root, story, segment, segment.raw or segment.text, body, caption_style, Table, TableStyle, colors)
+                _append_block(root, story, segment, segment.raw or segment.text, body, caption_style, Table, TableStyle, colors, latin_font)
             elif content == "translated":
-                _append_block(root, story, segment, target, body, caption_style, Table, TableStyle, colors)
+                _append_block(root, story, segment, target, body, caption_style, Table, TableStyle, colors, latin_font)
             else:
-                _append_block(root, story, segment, segment.raw or segment.text, source_style, caption_style, Table, TableStyle, colors)
-                _append_block(root, story, segment, target, body, caption_style, Table, TableStyle, colors)
+                _append_block(root, story, segment, segment.raw or segment.text, source_style, caption_style, Table, TableStyle, colors, latin_font)
+                _append_block(root, story, segment, target, body, caption_style, Table, TableStyle, colors, latin_font)
                 story.append(Spacer(1, 5))
-    document.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
+    document.build(story, onFirstPage=_page_number, onLaterPages=_page_number, canvasmaker=lambda *args, **kwargs: _AcademicCanvas(*args, chinese_font=chinese_font, **kwargs))
     return output
 
 
@@ -132,14 +133,15 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     section.bottom_margin = Cm(2.0)
     section.left_margin = section.right_margin = Cm(2.5)
     normal = document.styles["Normal"]
-    normal.font.name = "宋体"
+    normal.font.name = "Times New Roman"
     normal._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
     normal.font.size = Pt(10.5 if profile == "zh-cn-academic" else 10)
     normal.paragraph_format.line_spacing = 1.55 if profile == "zh-cn-academic" else 1.35
     for style_name in ("Title", "Heading 1", "Heading 2", "Heading 3"):
         style = document.styles[style_name]
-        style.font.name = "黑体"
-        style._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
+        style.font.name = "Times New Roman"
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+        style.font.bold = False
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.style = document.styles["Title"]
@@ -231,6 +233,7 @@ def _append_block(
     table_cls: object,
     table_style: object,
     colors: object,
+    latin_font: str,
 ) -> None:
     from reportlab.lib.units import mm
     from reportlab.platypus import Image, Paragraph, Spacer
@@ -245,13 +248,13 @@ def _append_block(
         return
 
     if segment.kind == "table":
-        rows = _markdown_table(value)
+        rows = _markdown_table(value, latin_font)
         if rows:
             table = table_cls(rows, repeatRows=1, hAlign="LEFT")
             table.setStyle(
                 table_style(
                     [
-                        ("FONTNAME", (0, 0), (-1, -1), "STSong-Light"),
+                        ("FONTNAME", (0, 0), (-1, -1), body.fontName),
                         ("FONTSIZE", (0, 0), (-1, -1), 8),
                         ("LEADING", (0, 0), (-1, -1), 11),
                         ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#777777")),
@@ -271,10 +274,10 @@ def _append_block(
     text = text.replace("**", "")
     text = re.sub(r"^```(?:math)?\s*|\s*```$", "", text)
     if text:
-        story.append(Paragraph(_escape(text).replace("\n", "<br/>"), style))
+        story.append(Paragraph(_mixed_font_markup(text, latin_font).replace("\n", "<br/>"), style))
 
 
-def _markdown_table(value: str) -> list[list[str]]:
+def _markdown_table(value: str, latin_font: str | None = None) -> list[list[str]]:
     lines = [line.strip() for line in value.splitlines() if line.strip().startswith("|")]
     if len(lines) < 2:
         return []
@@ -283,7 +286,7 @@ def _markdown_table(value: str) -> list[list[str]]:
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if index == 1 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
             continue
-        rows.append([_escape(cell) for cell in cells])
+        rows.append([_mixed_font_markup(cell, latin_font) if latin_font else _escape(cell) for cell in cells])
     return rows
 
 
@@ -291,9 +294,20 @@ def _escape(value: str) -> str:
     return html.escape(value, quote=False)
 
 
+class _AcademicCanvas:
+    """Bind page-number rendering to the same embedded Chinese font."""
+
+    def __new__(cls, *args: object, chinese_font: str, **kwargs: object) -> object:
+        from reportlab.pdfgen.canvas import Canvas
+
+        canvas = Canvas(*args, **kwargs)
+        canvas._contextweaver_chinese_font = chinese_font
+        return canvas
+
+
 def _page_number(canvas: object, document: object) -> None:
     canvas.saveState()
-    canvas.setFont("STSong-Light", 8)
+    canvas.setFont(getattr(canvas, "_contextweaver_chinese_font", "STSong-Light"), 8)
     canvas.drawCentredString(document.pagesize[0] / 2, 12 * 2.83465, str(document.page))
     canvas.restoreState()
 
@@ -307,3 +321,38 @@ def _translator_credit(active: dict[str, TranslationRecord]) -> str:
         label = {"codex-agent": "Codex Agent"}.get(adapter, adapter)
         return f"{label} ({model})"
     return "ContextWeaver translation workflow"
+
+
+def _register_academic_pdf_fonts(pdfmetrics: object, cid_font: object, tt_font: object) -> tuple[str, str]:
+    """Embed Songti SC and Times New Roman when those local fonts are available."""
+    songti = Path("/System/Library/Fonts/Supplemental/Songti.ttc")
+    times = Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
+    if songti.exists():
+        # In Apple's Songti collection, index 6 is Songti SC Regular.  Earlier
+        # indexes select bold faces, which would make ordinary Chinese prose
+        # visibly heavier than the requested normal Songti weight.
+        pdfmetrics.registerFont(tt_font("CW-Songti", str(songti), subfontIndex=6))
+        chinese_font = "CW-Songti"
+    else:
+        pdfmetrics.registerFont(cid_font("STSong-Light"))
+        chinese_font = "STSong-Light"
+    if times.exists():
+        pdfmetrics.registerFont(tt_font("CW-TimesNewRoman", str(times)))
+        latin_font = "CW-TimesNewRoman"
+    else:
+        latin_font = "Times-Roman"
+    return chinese_font, latin_font
+
+
+def _mixed_font_markup(value: str, latin_font: str | None) -> str:
+    """Keep Chinese in the paragraph font while assigning Latin runs Times New Roman."""
+    if not latin_font:
+        return _escape(value)
+    pieces: list[str] = []
+    cursor = 0
+    for match in re.finditer(r"[A-Za-z0-9][A-Za-z0-9._:/+%#?=&@()\-]*", value):
+        pieces.append(_escape(value[cursor : match.start()]))
+        pieces.append(f'<font name="{latin_font}">{_escape(match.group())}</font>')
+        cursor = match.end()
+    pieces.append(_escape(value[cursor:]))
+    return "".join(pieces)

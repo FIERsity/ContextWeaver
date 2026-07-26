@@ -238,6 +238,7 @@ def test_academic_pdf_reflows_tables_and_requires_complete_translation(project: 
 
 def test_academic_docx_uses_editable_chinese_academic_profile(project: Path, tmp_path: Path) -> None:
     from docx import Document
+    from docx.oxml.ns import qn
     from docx.shared import Cm
 
     segment_document(project, unit_size=1)
@@ -258,7 +259,8 @@ def test_academic_docx_uses_editable_chinese_academic_profile(project: Path, tmp
     output = export_academic_docx(project, profile="zh-cn-academic")
     document = Document(output)
     assert output.name == "translated.docx"
-    assert document.styles["Normal"].font.name == "宋体"
+    assert document.styles["Normal"].font.name == "Times New Roman"
+    assert document.styles["Normal"]._element.rPr.rFonts.get(qn("w:eastAsia")) == "宋体"
     assert abs(document.sections[0].page_width - Cm(21.0)) < 1_000
     assert abs(document.sections[0].page_height - Cm(29.7)) < 1_000
     assert document.paragraphs[0].text == "中文标题 1"
