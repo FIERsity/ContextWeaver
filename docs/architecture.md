@@ -100,6 +100,8 @@ Image-only Markdown Segments contain structure but no prose. The pipeline record
 
 Export selection is the Cartesian choice of format (`markdown`, `epub`, or both) and content (`translated`, `bilingual`, or both). Every route uses the newest active TranslationRecord and the same pre-export validation gate. EPUB output contains metadata, navigation, CSS, one XHTML chapter per non-empty Section, copied image binaries referenced by an EPUB source, and rewritten resolvable chapter links. Markdown is rendered with embedded HTML disabled. Ambiguous or missing assets are downgraded to explicit labeled placeholders rather than emitted as broken links.
 
+Academic PDF rendering uses CJK line breaking, but marks ordinary Latin words and numeric runs as non-breaking so they move as a whole at Chinese/Latin boundaries. URL-like tokens remain breakable to prevent overflow. The editable DOCX renderer writes Word's no-mid-word Latin-wrap setting for body paragraphs and tables. These are rendering rules only: they do not alter source Blocks, Segment IDs, or TranslationRecords.
+
 `state/export_metadata.json` records the source title/language, target language, actual translating Agent/model, optional human-reference credit, and fidelity policy. The same information appears in Markdown front matter, EPUB Dublin Core fields, and a visible EPUB provenance page. Attribution is inferred from active TranslationRecords unless explicitly overridden; mock output is labeled as non-final.
 
 ## Known phase-one limits

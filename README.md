@@ -69,7 +69,7 @@ contextweaver academic-pdf my-article --content bilingual
 contextweaver academic-docx my-article --content translated --profile zh-cn-academic
 ```
 
-`zh-cn-academic` uses A4 margins, SimSun (宋体) regular for Chinese body text, Times New Roman for Latin text and Arabic numerals, SimHei (黑体) bold for Chinese headings, and a 1.55-line body grid; `compact` is a denser editable draft profile. Both DOCX and PDF outputs reflow Chinese text rather than copying source pagination.
+`zh-cn-academic` uses A4 margins, SimSun (宋体) regular for Chinese body text, Times New Roman for Latin text and Arabic numerals, SimHei (黑体) bold for Chinese headings, and a 1.55-line body grid; `compact` is a denser editable draft profile. Both DOCX and PDF outputs reflow Chinese text rather than copying source pagination. The renderer keeps ordinary Latin words and number runs intact at Chinese/Latin boundaries, while allowing long URLs to wrap safely.
 
 The primary Agent-first route requires no human approval gate. After import, one resumable command performs segmentation when needed, book analysis, knowledge extraction, translation, validation, and export:
 

@@ -8,7 +8,7 @@ from ebooklib import epub
 
 from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
 from contextweaver.audit import _epub_resource_integrity
-from contextweaver.academic import export_academic_pdf
+from contextweaver.academic import _mixed_font_markup, export_academic_pdf
 from contextweaver.academic import export_academic_docx
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
@@ -262,10 +262,22 @@ def test_academic_docx_uses_editable_chinese_academic_profile(project: Path, tmp
     assert document.styles["Normal"].font.name == "Times New Roman"
     assert document.styles["Normal"]._element.rPr.rFonts.get(qn("w:eastAsia")) == "SimSun"
     assert document.styles["Heading 1"]._element.rPr.rFonts.get(qn("w:eastAsia")) == "SimHei"
+    with ZipFile(output) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert 'w:wordWrap w:val="0"' in document_xml
     assert abs(document.sections[0].page_width - Cm(21.0)) < 1_000
     assert abs(document.sections[0].page_height - Cm(29.7)) < 1_000
     assert document.paragraphs[0].text == "中文标题 1"
     assert "[MOCK] First paragraph." in "\n".join(item.text for item in document.paragraphs)
+
+
+def test_academic_pdf_keeps_short_latin_runs_together() -> None:
+    rendered = _mixed_font_markup("使用 PLOS ONE 和 2019 年数据。", "CW-TimesNewRoman")
+    assert '<nobr><font name="CW-TimesNewRoman">PLOS</font></nobr>' in rendered
+    assert '<nobr><font name="CW-TimesNewRoman">2019</font></nobr>' in rendered
+
+    url = _mixed_font_markup("见 https://example.org/a-long-path。", "CW-TimesNewRoman")
+    assert "<nobr>" not in url
 
 
 def test_academic_docx_writes_markdown_tables(project: Path) -> None:

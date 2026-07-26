@@ -52,7 +52,16 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
         pdfmetrics, UnicodeCIDFont, TTFont
     )
     styles = getSampleStyleSheet()
-    body = ParagraphStyle("CWAcademicBody", parent=styles["BodyText"], fontName=chinese_font, fontSize=10.5, leading=17, spaceAfter=6)
+    body = ParagraphStyle(
+        "CWAcademicBody",
+        parent=styles["BodyText"],
+        fontName=chinese_font,
+        fontSize=10.5,
+        leading=17,
+        spaceAfter=6,
+        wordWrap="CJK",
+        splitLongWords=False,
+    )
     source_style = ParagraphStyle("CWAcademicSource", parent=body, textColor=colors.HexColor("#555555"), fontSize=8.5, leading=13)
     title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName=heading_font, fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
     credit_style = ParagraphStyle(
@@ -205,6 +214,8 @@ def _append_docx_block(
                 for column_index, value_cell in enumerate(row):
                     table_cell = table.cell(row_index, column_index)
                     table_cell.text = html.unescape(value_cell)
+                    for paragraph in table_cell.paragraphs:
+                        _set_docx_line_break_policy(paragraph)
                     if row_index == 0:
                         for run in table_cell.paragraphs[0].runs:
                             run.bold = True
@@ -215,6 +226,7 @@ def _append_docx_block(
     if not text:
         return
     paragraph = document.add_paragraph(text)
+    _set_docx_line_break_policy(paragraph)
     if profile == "compact":
         paragraph.paragraph_format.space_after = Pt(2)
     if source:
@@ -344,6 +356,19 @@ def _translator_credit(active: dict[str, TranslationRecord]) -> str:
     return "ContextWeaver translation workflow"
 
 
+def _set_docx_line_break_policy(paragraph: object) -> None:
+    """Keep Latin words and digit strings intact in CJK Word paragraphs."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    properties = paragraph._p.get_or_add_pPr()
+    existing = properties.find(qn("w:wordWrap"))
+    if existing is None:
+        existing = OxmlElement("w:wordWrap")
+        properties.append(existing)
+    existing.set(qn("w:val"), "0")
+
+
 def _register_academic_pdf_fonts(
     pdfmetrics: object, cid_font: object, tt_font: object
 ) -> tuple[str, str, str]:
@@ -381,7 +406,11 @@ def _mixed_font_markup(value: str, latin_font: str | None) -> str:
     cursor = 0
     for match in re.finditer(r"[A-Za-z0-9][A-Za-z0-9._:/+%#?=&@()\-]*", value):
         pieces.append(_escape(value[cursor : match.start()]))
-        pieces.append(f'<font name="{latin_font}">{_escape(match.group())}</font>')
+        token = _escape(match.group())
+        rendered = f'<font name="{latin_font}">{token}</font>'
+        if len(match.group()) <= 40 and not re.search(r"[/:?&=]", match.group()):
+            rendered = f"<nobr>{rendered}</nobr>"
+        pieces.append(rendered)
         cursor = match.end()
     pieces.append(_escape(value[cursor:]))
     return "".join(pieces)
