@@ -9,6 +9,7 @@ from ebooklib import epub
 from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
 from contextweaver.audit import _epub_resource_integrity
 from contextweaver.academic import export_academic_pdf
+from contextweaver.academic import export_academic_docx
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -233,6 +234,32 @@ def test_academic_pdf_reflows_tables_and_requires_complete_translation(project: 
     output = export_academic_pdf(project)
     assert output.name == "translated.pdf"
     assert output.read_bytes().startswith(b"%PDF")
+
+
+def test_academic_docx_uses_editable_chinese_academic_profile(project: Path) -> None:
+    from docx import Document
+
+    segment_document(project, unit_size=1)
+    with pytest.raises(RuntimeError, match="complete translation"):
+        export_academic_docx(project)
+    translate_project(project, MockTranslationAdapter())
+    output = export_academic_docx(project, profile="zh-cn-academic")
+    document = Document(output)
+    assert output.name == "translated.docx"
+    assert document.styles["Normal"].font.name == "宋体"
+    assert "[MOCK] First paragraph." in "\n".join(item.text for item in document.paragraphs)
+
+
+def test_academic_docx_writes_markdown_tables(project: Path) -> None:
+    source = project / "source" / "document.md"
+    source.write_text("# One\n\n| Name | Value |\n| --- | --- |\n| A | 1 |\n", encoding="utf-8")
+    segment_document(project, unit_size=1)
+    output = export_academic_docx(project, content="source")
+    from docx import Document
+
+    document = Document(output)
+    assert len(document.tables) == 1
+    assert document.tables[0].cell(0, 0).text == "Name"
 
 
 def test_epub_export_copies_images_and_rewrites_internal_chapter_links(tmp_path: Path) -> None:

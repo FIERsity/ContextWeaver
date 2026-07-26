@@ -29,6 +29,8 @@ Set a shell variable such as `CW=contextweaver` or `CW="uv run contextweaver"`. 
 
    For an open PLOS ONE JATS source, `academic-assets PROJECT` explicitly fetches only JATS `fig` assets and records their hashes in `state/academic_assets.json`. Install `.[pdf]`, then use `academic-pdf PROJECT --content source` for a source-layout proof, or `--content translated|bilingual` only after the project has complete active translations. The PDF is reflowed A4 with Chinese-capable typography; it is not a journal-template facsimile and does not translate labels embedded in bitmap figures.
 
+   Use `academic-docx PROJECT --content translated --profile zh-cn-academic` for an editable Chinese academic draft, or `--profile compact` for a denser review copy. Render DOCX output through LibreOffice before handing it off. Full JATS validation checks normalized figure/table counts and fetched-asset hashes; do not waive missing assets for a final PDF/DOCX artifact.
+
 3. Run `segment`, then inspect `state/segments.jsonl` before translating. Report section, segment, and unit counts. Do not alter stable Segment IDs manually.
 
 4. Run `analyze` before translation. It generates `state/translation_brief.json` and `notes/translation_brief.md` from bounded samples across the work. Use the result immediately; human review is optional. Reuse an existing brief on resume and use `--refresh` only when intentionally replacing its current strategy.

@@ -90,6 +90,115 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
     return output
 
 
+def export_academic_docx(root: Path, content: str = "translated", profile: str = "zh-cn-academic") -> Path:
+    """Write an editable, reflowed academic DOCX from the active records."""
+    if content not in {"source", "translated", "bilingual"}:
+        raise ValueError("content must be source, translated, or bilingual")
+    if profile not in {"zh-cn-academic", "compact"}:
+        raise ValueError("profile must be zh-cn-academic or compact")
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt
+
+    source = SourceDocument(**read_json(root / STATE / "source_document.json"))
+    sections = read_jsonl(root / STATE / "sections.jsonl", Section)
+    segments = read_jsonl(root / STATE / "segments.jsonl", Segment)
+    active = active_translations(read_jsonl(root / STATE / "translations.jsonl", TranslationRecord))
+    if content != "source" and set(active) != {item.id for item in segments}:
+        raise RuntimeError("Academic DOCX requires a complete translation; resume translate first")
+    titles = active_section_titles(
+        read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
+    )
+    document = Document()
+    section = document.sections[0]
+    section.top_margin = Cm(2.2)
+    section.bottom_margin = Cm(2.0)
+    section.left_margin = section.right_margin = Cm(2.5)
+    normal = document.styles["Normal"]
+    normal.font.name = "宋体"
+    normal._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    normal.font.size = Pt(10.5 if profile == "zh-cn-academic" else 10)
+    normal.paragraph_format.line_spacing = 1.55 if profile == "zh-cn-academic" else 1.35
+    for style_name in ("Title", "Heading 1", "Heading 2", "Heading 3"):
+        style = document.styles[style_name]
+        style.font.name = "黑体"
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
+    title = document.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.style = document.styles["Title"]
+    title.add_run(source.title)
+    by_section: dict[str, list[Segment]] = {}
+    for item in segments:
+        by_section.setdefault(item.section_id, []).append(item)
+    for item in sections:
+        scoped = by_section.get(item.id, [])
+        if not scoped:
+            continue
+        target_title = titles.get(item.id).translated_title if item.id in titles else item.title
+        heading = item.title if content == "source" else target_title
+        document.add_heading(heading, level=min(item.level, 3))
+        if content == "bilingual" and target_title != item.title:
+            paragraph = document.add_paragraph(item.title)
+            paragraph.runs[0].italic = True
+        for segment in scoped:
+            target = active[segment.id].translated_text if segment.id in active else segment.raw or segment.text
+            if content == "source":
+                _append_docx_block(document, root, segment, segment.raw or segment.text, profile)
+            elif content == "translated":
+                _append_docx_block(document, root, segment, target, profile)
+            else:
+                _append_docx_block(document, root, segment, segment.raw or segment.text, profile, source=True)
+                _append_docx_block(document, root, segment, target, profile)
+    output = root / "output" / "doc" / f"{content}.docx"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    document.save(output)
+    return output
+
+
+def _append_docx_block(
+    document: object, root: Path, segment: Segment, value: str, profile: str, source: bool = False
+) -> None:
+    from docx.shared import Cm, Pt
+
+    image = re.fullmatch(r"!\[[^]]*\]\((assets/[^)]+)\)", value.strip())
+    if image:
+        path = root / "source" / image.group(1)
+        if path.exists():
+            paragraph = document.add_paragraph()
+            paragraph.alignment = 1
+            paragraph.add_run().add_picture(str(path), width=Cm(15))
+        return
+    if segment.kind == "table":
+        rows = _markdown_table(value)
+        if rows:
+            table = document.add_table(rows=len(rows), cols=len(rows[0]))
+            table.style = "Table Grid"
+            for row_index, row in enumerate(rows):
+                for column_index, value_cell in enumerate(row):
+                    table_cell = table.cell(row_index, column_index)
+                    table_cell.text = html.unescape(value_cell)
+                    if row_index == 0:
+                        for run in table_cell.paragraphs[0].runs:
+                            run.bold = True
+            return
+    text = re.sub(r"^>\s*", "", value.strip()) if segment.kind == "blockquote" else value.strip()
+    text = text.replace("**", "")
+    text = re.sub(r"^```(?:math)?\s*|\s*```$", "", text)
+    if not text:
+        return
+    paragraph = document.add_paragraph(text)
+    if profile == "compact":
+        paragraph.paragraph_format.space_after = Pt(2)
+    if source:
+        for run in paragraph.runs:
+            run.italic = True
+            run.font.size = Pt(9)
+    if segment.kind == "blockquote":
+        paragraph.paragraph_format.left_indent = Cm(0.4)
+        paragraph.paragraph_format.space_after = Pt(4)
+
+
 def _append_block(
     root: Path,
     story: list[object],

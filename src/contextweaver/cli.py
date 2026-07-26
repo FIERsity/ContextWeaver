@@ -17,7 +17,7 @@ from .adapters import (
     OpenAITranslationAdapter,
 )
 from .audit import audit_project
-from .academic import export_academic_pdf
+from .academic import export_academic_docx, export_academic_pdf
 from .academic_assets import fetch_jats_assets
 from .coherence import review_book, review_sections
 from .coherence_adapters import (
@@ -138,6 +138,16 @@ def parser() -> argparse.ArgumentParser:
     academic_pdf.add_argument("project", type=Path)
     academic_pdf.add_argument(
         "--content", choices=["source", "translated", "bilingual"], default="translated"
+    )
+    academic_docx = commands.add_parser(
+        "academic-docx", help="Render an editable academic-paper DOCX"
+    )
+    academic_docx.add_argument("project", type=Path)
+    academic_docx.add_argument(
+        "--content", choices=["source", "translated", "bilingual"], default="translated"
+    )
+    academic_docx.add_argument(
+        "--profile", choices=["zh-cn-academic", "compact"], default="zh-cn-academic"
     )
     assets = commands.add_parser(
         "academic-assets", help="Fetch supported JATS figure assets into the project"
@@ -401,6 +411,9 @@ def run(argv: list[str] | None = None) -> int:
         elif args.command == "academic-pdf":
             path = export_academic_pdf(args.project, args.content)
             LOG.info("Wrote academic PDF %s", path)
+        elif args.command == "academic-docx":
+            path = export_academic_docx(args.project, args.content, args.profile)
+            LOG.info("Wrote academic DOCX %s", path)
         elif args.command == "academic-assets":
             result = fetch_jats_assets(args.project)
             LOG.info("Available academic assets: %d", len(result["assets"]))

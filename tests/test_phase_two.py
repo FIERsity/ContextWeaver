@@ -13,6 +13,7 @@ from contextweaver.adapters import (
     OpenAITranslationAdapter,
     TranslationAdapter,
 )
+from contextweaver.academic_validation import academic_issues
 from contextweaver.knowledge import propose_knowledge
 from contextweaver.markdown import plain_text
 from contextweaver.models import ContextPacket, Segment, TranslationRecord
@@ -159,6 +160,11 @@ def test_jats_import_preserves_academic_structure_and_reports_publishing_risks(
     assert brief["genre"] == "scholarly research article"
     assert "academic research" in brief["domains"]
     assert any("citation keys" in item for item in brief["principles"])
+    source_document = json.loads((root / "state" / "source_document.json").read_text())
+    from contextweaver.models import SourceDocument
+
+    issues = academic_issues(root, SourceDocument(**source_document), segments)
+    assert "academic_missing_figure_asset" in {item.kind for item in issues}
 
 
 def test_replacing_source_discards_stale_academic_assets(tmp_path: Path) -> None:
