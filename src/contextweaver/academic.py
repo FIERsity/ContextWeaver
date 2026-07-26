@@ -133,14 +133,15 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     section.bottom_margin = Cm(2.0)
     section.left_margin = section.right_margin = Cm(2.5)
     normal = document.styles["Normal"]
+    chinese_docx_font = _preferred_docx_chinese_font()
     normal.font.name = "Times New Roman"
-    normal._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    normal._element.rPr.rFonts.set(qn("w:eastAsia"), chinese_docx_font)
     normal.font.size = Pt(10.5 if profile == "zh-cn-academic" else 10)
     normal.paragraph_format.line_spacing = 1.55 if profile == "zh-cn-academic" else 1.35
     for style_name in ("Title", "Heading 1", "Heading 2", "Heading 3"):
         style = document.styles[style_name]
         style.font.name = "Times New Roman"
-        style._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), chinese_docx_font)
         style.font.bold = False
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -342,6 +343,12 @@ def _register_academic_pdf_fonts(pdfmetrics: object, cid_font: object, tt_font: 
     else:
         latin_font = "Times-Roman"
     return chinese_font, latin_font
+
+
+def _preferred_docx_chinese_font() -> str:
+    """Prefer the installed, open-licensed Songti face without harming portability."""
+    source_han = Path.home() / "Library" / "Fonts" / "SourceHanSerifSC-Regular.otf"
+    return "Source Han Serif SC" if source_han.exists() else "宋体"
 
 
 def _mixed_font_markup(value: str, latin_font: str | None) -> str:

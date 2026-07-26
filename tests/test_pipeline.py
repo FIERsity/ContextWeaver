@@ -8,7 +8,7 @@ from ebooklib import epub
 
 from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
 from contextweaver.audit import _epub_resource_integrity
-from contextweaver.academic import export_academic_pdf
+from contextweaver.academic import _preferred_docx_chinese_font, export_academic_pdf
 from contextweaver.academic import export_academic_docx
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
@@ -260,7 +260,7 @@ def test_academic_docx_uses_editable_chinese_academic_profile(project: Path, tmp
     document = Document(output)
     assert output.name == "translated.docx"
     assert document.styles["Normal"].font.name == "Times New Roman"
-    assert document.styles["Normal"]._element.rPr.rFonts.get(qn("w:eastAsia")) == "宋体"
+    assert document.styles["Normal"]._element.rPr.rFonts.get(qn("w:eastAsia")) == _preferred_docx_chinese_font()
     assert abs(document.sections[0].page_width - Cm(21.0)) < 1_000
     assert abs(document.sections[0].page_height - Cm(29.7)) < 1_000
     assert document.paragraphs[0].text == "中文标题 1"

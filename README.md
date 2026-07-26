@@ -69,7 +69,7 @@ contextweaver academic-pdf my-article --content bilingual
 contextweaver academic-docx my-article --content translated --profile zh-cn-academic
 ```
 
-`zh-cn-academic` uses A4 margins, normal-weight Songti Chinese, Times New Roman for Latin text and Arabic numerals, and a 1.55-line body grid; `compact` is a denser editable draft profile. Both DOCX and PDF outputs reflow Chinese text rather than copying source pagination.
+`zh-cn-academic` uses A4 margins, normal-weight Songti Chinese, Times New Roman for Latin text and Arabic numerals, and a 1.55-line body grid; `compact` is a denser editable draft profile. On macOS, an installed official Source Han Serif SC Regular (思源宋体常规体) is preferred for reliable local rendering, with the system Songti setting retained as a portable fallback. Both DOCX and PDF outputs reflow Chinese text rather than copying source pagination.
 
 The primary Agent-first route requires no human approval gate. After import, one resumable command performs segmentation when needed, book analysis, knowledge extraction, translation, validation, and export:
 
