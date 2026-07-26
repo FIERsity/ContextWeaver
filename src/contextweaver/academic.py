@@ -43,12 +43,18 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
     titles = active_section_titles(
         read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
     )
+    article_title = source.title
+    if content != "source" and sections and sections[0].id in titles:
+        article_title = titles[sections[0].id].translated_title
 
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
     styles = getSampleStyleSheet()
     body = ParagraphStyle("CWAcademicBody", parent=styles["BodyText"], fontName="STSong-Light", fontSize=10.5, leading=17, spaceAfter=6)
     source_style = ParagraphStyle("CWAcademicSource", parent=body, textColor=colors.HexColor("#555555"), fontSize=8.5, leading=13)
     title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName="STSong-Light", fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
+    credit_style = ParagraphStyle(
+        "CWAcademicCredit", parent=body, fontSize=9, leading=13, alignment=TA_CENTER, spaceAfter=12
+    )
     heading_style = ParagraphStyle("CWAcademicHeading", parent=styles["Heading2"], fontName="STSong-Light", fontSize=13, leading=19, spaceBefore=12, spaceAfter=7)
     caption_style = ParagraphStyle("CWAcademicCaption", parent=body, fontSize=9, leading=14, leftIndent=8, textColor=colors.HexColor("#333333"))
     output = root / "output" / "pdf" / f"{content}.pdf"
@@ -60,10 +66,12 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
         rightMargin=25 * mm,
         topMargin=22 * mm,
         bottomMargin=20 * mm,
-        title=source.title,
-        author="ContextWeaver",
+        title=article_title,
+        author=_translator_credit(active) if content != "source" else "ContextWeaver",
     )
-    story = [Paragraph(_escape(source.title), title_style)]
+    story = [Paragraph(_escape(article_title), title_style)]
+    if content != "source":
+        story.append(Paragraph(f"译者：{_escape(_translator_credit(active))}", credit_style))
     by_section: dict[str, list[Segment]] = {}
     for item in segments:
         by_section.setdefault(item.section_id, []).append(item)
@@ -110,8 +118,16 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     titles = active_section_titles(
         read_jsonl(root / STATE / "section_titles.jsonl", SectionTitleRecord)
     )
+    article_title = source.title
+    if content != "source" and sections and sections[0].id in titles:
+        article_title = titles[sections[0].id].translated_title
     document = Document()
     section = document.sections[0]
+    # A margin-only setup leaves the default Letter page size intact in Word
+    # and LibreOffice.  Persist both dimensions so the editable export really
+    # is an A4 academic document, not merely an A4-looking template.
+    section.page_width = Cm(21.0)
+    section.page_height = Cm(29.7)
     section.top_margin = Cm(2.2)
     section.bottom_margin = Cm(2.0)
     section.left_margin = section.right_margin = Cm(2.5)
@@ -127,7 +143,13 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.style = document.styles["Title"]
-    title.add_run(source.title)
+    title.add_run(article_title)
+    if content != "source":
+        credit = document.add_paragraph(f"译者：{_translator_credit(active)}")
+        credit.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in credit.runs:
+            run.font.size = Pt(9)
+        document.core_properties.author = _translator_credit(active)
     by_section: dict[str, list[Segment]] = {}
     for item in segments:
         by_section.setdefault(item.section_id, []).append(item)
@@ -274,3 +296,14 @@ def _page_number(canvas: object, document: object) -> None:
     canvas.setFont("STSong-Light", 8)
     canvas.drawCentredString(document.pagesize[0] / 2, 12 * 2.83465, str(document.page))
     canvas.restoreState()
+
+
+def _translator_credit(active: dict[str, TranslationRecord]) -> str:
+    """Return a visible, evidence-backed translation credit for target drafts."""
+    records = [item for item in active.values() if item.adapter != "bibliography-passthrough"]
+    pairs = {(item.adapter, item.model) for item in records}
+    if len(pairs) == 1:
+        adapter, model = next(iter(pairs))
+        label = {"codex-agent": "Codex Agent"}.get(adapter, adapter)
+        return f"{label} ({model})"
+    return "ContextWeaver translation workflow"

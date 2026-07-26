@@ -236,17 +236,32 @@ def test_academic_pdf_reflows_tables_and_requires_complete_translation(project: 
     assert output.read_bytes().startswith(b"%PDF")
 
 
-def test_academic_docx_uses_editable_chinese_academic_profile(project: Path) -> None:
+def test_academic_docx_uses_editable_chinese_academic_profile(project: Path, tmp_path: Path) -> None:
     from docx import Document
+    from docx.shared import Cm
 
     segment_document(project, unit_size=1)
     with pytest.raises(RuntimeError, match="complete translation"):
         export_academic_docx(project)
     translate_project(project, MockTranslationAdapter())
+    sections, _, _ = segment_document(project, unit_size=1)
+    titles = tmp_path / "academic-titles.jsonl"
+    titles.write_text(
+        "\n".join(
+            json.dumps({"section_id": item.id, "translated_title": f"中文标题 {index}"})
+            for index, item in enumerate(sections, 1)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    import_section_title_draft(project, titles, "codex-agent", "GPT-5", "academic-title")
     output = export_academic_docx(project, profile="zh-cn-academic")
     document = Document(output)
     assert output.name == "translated.docx"
     assert document.styles["Normal"].font.name == "宋体"
+    assert abs(document.sections[0].page_width - Cm(21.0)) < 1_000
+    assert abs(document.sections[0].page_height - Cm(29.7)) < 1_000
+    assert document.paragraphs[0].text == "中文标题 1"
     assert "[MOCK] First paragraph." in "\n".join(item.text for item in document.paragraphs)
 
 
