@@ -58,6 +58,8 @@ SQLite is intentionally absent: phase-one state is small enough for transparent 
 
 Markdown-it token ranges retain each top-level block's raw Markdown, plain text, type, source line locator, and format signature. TXT headings are normalized to Markdown. DOCX headings, emphasis, simple lists, and tables are converted with `python-docx`; EPUB spine documents are converted with EbookLib and Beautiful Soup. JATS XML articles retain section hierarchy, captions, tables, displayed equations, citations, footnotes, and references in normalized Markdown, while their import report explicitly records figures, tables, citation counts, equations, and asset-rendering limitations. The original file remains available to audit lossy conversion.
 
+`academic-assets` is an explicit, resumable network step rather than an importer side effect. Its first provider is PLOS ONE: it fetches only figure resources referenced by JATS `fig` objects, writes them under `source/assets/`, and records URL, SHA-256, byte count, and status in `state/academic_assets.json`. `academic-pdf` is an optional ReportLab renderer that creates reflowed A4 source, translated, or bilingual drafts under `output/pdf/`. It requires complete active translations for target-facing PDFs and preserves figure/table proximity rather than source-page coordinates.
+
 ## Evidence-backed knowledge
 
 `extract-knowledge` conservatively proposes repeated proper-name candidates. Glossary and entity records include confidence, review status, and evidence Segment IDs. Only approved records enter context packets, but proposed records never block the autonomous route. Extraction merges new candidates rather than overwriting later Agent or human decisions.

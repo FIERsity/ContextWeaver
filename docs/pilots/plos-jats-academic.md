@@ -18,12 +18,14 @@ contextweaver import PROJECT journal.pone.0251194.xml
 contextweaver segment PROJECT --unit-size 2
 contextweaver analyze PROJECT --adapter heuristic
 contextweaver summarize PROJECT --adapter heuristic
+contextweaver academic-assets PROJECT
+contextweaver academic-pdf PROJECT --content source
 ```
 
-The run produced 27 Sections, 66 stable Segments, and 42 TranslationUnits. Its import report recorded 55 body/abstract paragraphs, 24 headings, 2 figures, 4 tables, 72 citations, and 29 references. The automatic strategy correctly classified the source as a scholarly research article and added rules to preserve citation keys, figure/table labels, equations, units, and statistical symbols.
+The run produced 27 Sections, 68 stable Segments, and 44 TranslationUnits. Its import report recorded 55 body/abstract paragraphs, 24 headings, 2 figures, 4 tables, 72 citations, and 29 references. Both figure binaries were fetched into the ignored project with SHA-256 records, then rendered in a reflowed A4 source PDF. The automatic strategy correctly classified the source as a scholarly research article and added rules to preserve citation keys, figure/table labels, equations, units, and statistical symbols.
 
 ## Deliberate boundary
 
-The current JATS path retains figure and table captions as source-preserving review blocks, and converts actual table cells to Markdown tables. It does not yet fetch graphic binaries, generate Chinese figure labels, or render a publication-quality PDF/DOCX. Those are explicit requirements for the next academic publishing phase, rather than silent losses.
+The current JATS path retains figure and table captions as source-preserving review blocks, converts actual table cells to Markdown tables, and fetches JATS figure resources only for PLOS ONE. The PDF renderer does not yet generate a journal-template facsimile, support all JATS asset providers, translate embedded bitmap labels, or export DOCX. Those are explicit requirements for the next academic publishing phase, rather than silent losses.
 
 Source and license: [PLOS ONE article page](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0251194).

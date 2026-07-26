@@ -24,6 +24,8 @@ Version 0.10 adds bounded offline-Agent work packages and semantic numeric ancho
 
 The first academic-document path imports JATS XML (the open interchange format used by many journals). It recognizes the work as a scholarly article before translation, retains article sections, captions, tables, displayed equations, footnotes, and references as inspectable Markdown, and emits a structured import report for figures, tables, citations, equations, and publishing-stage risks. PDF/DOCX publication rendering is the next phase, not yet a release capability. The structural [PLOS JATS pilot](docs/pilots/plos-jats-academic.md) records the first real-paper run.
 
+The academic preview path can fetch figure binaries from supported open PLOS ONE JATS articles and render reflowed A4 source, translated, or bilingual PDFs. It uses Chinese-capable PDF fonts and preserves reading order rather than copying English pagination. It is intentionally a publication draft: it does not yet reproduce journal templates or translate text embedded inside figures.
+
 The current EPUB exporter also copies referenced image binaries from an EPUB source and rewrites resolvable intra-book chapter links to the generated EPUB sections. Export auditing verifies that image targets and local links resolve inside both EPUB artifacts.
 
 ## Quick start
@@ -53,6 +55,17 @@ contextweaver validate my-book
 contextweaver export my-book
 contextweaver audit my-book
 contextweaver status my-book
+```
+
+For an imported JATS article:
+
+```bash
+python -m pip install -e '.[pdf]'
+contextweaver academic-assets my-article
+contextweaver academic-pdf my-article --content source
+# After complete translation:
+contextweaver academic-pdf my-article --content translated
+contextweaver academic-pdf my-article --content bilingual
 ```
 
 The primary Agent-first route requires no human approval gate. After import, one resumable command performs segmentation when needed, book analysis, knowledge extraction, translation, validation, and export:

@@ -8,6 +8,7 @@ from ebooklib import epub
 
 from contextweaver.adapters import BibliographyPassthroughAdapter, MockTranslationAdapter, TranslationAdapter
 from contextweaver.audit import _epub_resource_integrity
+from contextweaver.academic import export_academic_pdf
 from contextweaver.exporters import _reader_typography, render_markdown
 from contextweaver.models import ContextPacket, Section, SectionTitleRecord, Segment, TranslationRecord
 from contextweaver.pipeline import (
@@ -222,6 +223,16 @@ def test_optional_epub_exports_are_readable(project: Path) -> None:
         assert book.get_metadata("DC", "title")
         assert len(book.spine) == 4
         assert book.get_metadata("DC", "creator")[0][0].startswith("ContextWeaver Mock Adapter")
+
+
+def test_academic_pdf_reflows_tables_and_requires_complete_translation(project: Path) -> None:
+    segment_document(project, unit_size=1)
+    with pytest.raises(RuntimeError, match="complete translation"):
+        export_academic_pdf(project)
+    translate_project(project, MockTranslationAdapter())
+    output = export_academic_pdf(project)
+    assert output.name == "translated.pdf"
+    assert output.read_bytes().startswith(b"%PDF")
 
 
 def test_epub_export_copies_images_and_rewrites_internal_chapter_links(tmp_path: Path) -> None:

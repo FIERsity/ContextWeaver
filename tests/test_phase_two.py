@@ -27,6 +27,7 @@ from contextweaver.pipeline import (
     segment_document,
     translate_project,
     validate_project,
+    replace_document,
 )
 from contextweaver.reference import import_reference, simplify_reference, simplify_reference_outputs
 from contextweaver.storage import read_jsonl, write_jsonl
@@ -138,6 +139,7 @@ def test_jats_import_preserves_academic_structure_and_reports_publishing_risks(
     assert "# Trial Article" in normalized
     assert "## Abstract" in normalized
     assert "## Methods" in normalized
+    assert "![Fig 1](assets/figure-1.png)" in normalized
     assert "> **Fig 1.** Study flow." in normalized
     assert "| Group | n |" in normalized
     assert "```math\nx\n```" in normalized
@@ -157,6 +159,19 @@ def test_jats_import_preserves_academic_structure_and_reports_publishing_risks(
     assert brief["genre"] == "scholarly research article"
     assert "academic research" in brief["domains"]
     assert any("citation keys" in item for item in brief["principles"])
+
+
+def test_replacing_source_discards_stale_academic_assets(tmp_path: Path) -> None:
+    source = tmp_path / "source.md"
+    source.write_text("# One\n\nText.\n", encoding="utf-8")
+    root = _project(tmp_path, source)
+    asset = root / "source" / "assets" / "old.png"
+    asset.parent.mkdir()
+    asset.write_bytes(b"old")
+    (root / "state" / "academic_assets.json").write_text("{}\n", encoding="utf-8")
+    replace_document(root, source)
+    assert not asset.exists()
+    assert not (root / "state" / "academic_assets.json").exists()
 
 
 def test_knowledge_proposals_have_evidence_and_preserve_edits(tmp_path: Path) -> None:

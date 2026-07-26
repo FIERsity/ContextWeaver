@@ -27,6 +27,8 @@ Set a shell variable such as `CW=contextweaver` or `CW="uv run contextweaver"`. 
 
 2. Import one source. Never pass `--replace` unless the user explicitly intends to discard generated translation state. EPUB, DOCX, Markdown, TXT, and JATS XML are supported. For an academic JATS source, inspect `state/import_report.json` before segmenting: figures, tables, citations, equations, footnotes, and references are preserved as reviewable structure, but figure-asset fetching and final PDF/DOCX layout remain a publishing-stage task.
 
+   For an open PLOS ONE JATS source, `academic-assets PROJECT` explicitly fetches only JATS `fig` assets and records their hashes in `state/academic_assets.json`. Install `.[pdf]`, then use `academic-pdf PROJECT --content source` for a source-layout proof, or `--content translated|bilingual` only after the project has complete active translations. The PDF is reflowed A4 with Chinese-capable typography; it is not a journal-template facsimile and does not translate labels embedded in bitmap figures.
+
 3. Run `segment`, then inspect `state/segments.jsonl` before translating. Report section, segment, and unit counts. Do not alter stable Segment IDs manually.
 
 4. Run `analyze` before translation. It generates `state/translation_brief.json` and `notes/translation_brief.md` from bounded samples across the work. Use the result immediately; human review is optional. Reuse an existing brief on resume and use `--refresh` only when intentionally replacing its current strategy.

@@ -17,6 +17,8 @@ from .adapters import (
     OpenAITranslationAdapter,
 )
 from .audit import audit_project
+from .academic import export_academic_pdf
+from .academic_assets import fetch_jats_assets
 from .coherence import review_book, review_sections
 from .coherence_adapters import (
     HeuristicCoherenceReviewAdapter,
@@ -130,6 +132,17 @@ def parser() -> argparse.ArgumentParser:
     exp.add_argument(
         "--segment", action="append", default=[], help="Export only selected segment IDs"
     )
+    academic_pdf = commands.add_parser(
+        "academic-pdf", help="Render a reflowed A4 academic-paper PDF"
+    )
+    academic_pdf.add_argument("project", type=Path)
+    academic_pdf.add_argument(
+        "--content", choices=["source", "translated", "bilingual"], default="translated"
+    )
+    assets = commands.add_parser(
+        "academic-assets", help="Fetch supported JATS figure assets into the project"
+    )
+    assets.add_argument("project", type=Path)
     status = commands.add_parser("status", help="Show pipeline progress")
     status.add_argument("project", type=Path)
     extract = commands.add_parser(
@@ -385,6 +398,12 @@ def run(argv: list[str] | None = None) -> int:
                 set(args.segment) or None,
             )
             LOG.info("Wrote %d artifact(s): %s", len(paths), ", ".join(str(path) for path in paths))
+        elif args.command == "academic-pdf":
+            path = export_academic_pdf(args.project, args.content)
+            LOG.info("Wrote academic PDF %s", path)
+        elif args.command == "academic-assets":
+            result = fetch_jats_assets(args.project)
+            LOG.info("Available academic assets: %d", len(result["assets"]))
         elif args.command == "status":
             print(json.dumps(project_status(args.project).to_dict(), ensure_ascii=False, indent=2))
         elif args.command == "extract-knowledge":

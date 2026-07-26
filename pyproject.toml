@@ -27,8 +27,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "reportlab>=4.2"]
 openai = ["openai>=2.0"]
+pdf = ["reportlab>=4.2"]
 
 [project.scripts]
 contextweaver = "contextweaver.cli:main"

@@ -147,12 +147,14 @@ def replace_document(root: Path, source: Path) -> SourceDocument:
         "translation_brief.json",
         "section_summaries.jsonl",
         "ambiguities.jsonl",
+        "academic_assets.json",
     ):
         (root / STATE / name).unlink(missing_ok=True)
     (root / "notes" / "translation_brief.md").unlink(missing_ok=True)
     (root / "notes" / "section_summaries.md").unlink(missing_ok=True)
     for old in (root / "source").glob("document.*"):
         old.unlink()
+    shutil.rmtree(root / "source" / "assets", ignore_errors=True)
     return import_document(root, source)
 
 

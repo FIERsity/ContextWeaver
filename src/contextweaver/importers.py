@@ -272,8 +272,18 @@ def _jats_paragraphs(node: ElementTree.Element, report: dict[str, Any]) -> list[
 def _jats_figure(node: ElementTree.Element, report: dict[str, Any]) -> list[str]:
     label = _jats_text(_first(node, "label")) or "Figure"
     caption = _jats_text(_first(node, "caption"))
+    graphic = _first(node, ".//graphic")
+    reference = ""
+    if graphic is not None:
+        reference = next(
+            (value for key, value in graphic.attrib.items() if key.rsplit("}", 1)[-1] == "href"),
+            "",
+        )
     report["figures"] += 1
-    return [f"> **{label}.** {caption}".rstrip()]
+    filename = reference.rsplit("/", 1)[-1].split("journal.")[-1]
+    blocks = [f"![{label}](assets/{filename}.png)" if reference else f"![{label}](assets/missing.png)"]
+    blocks.append(f"> **{label}.** {caption}".rstrip())
+    return blocks
 
 
 def _jats_table(node: ElementTree.Element, report: dict[str, Any]) -> list[str]:
