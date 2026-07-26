@@ -48,15 +48,17 @@ def export_academic_pdf(root: Path, content: str = "translated") -> Path:
     if content != "source" and sections and sections[0].id in titles:
         article_title = titles[sections[0].id].translated_title
 
-    chinese_font, latin_font = _register_academic_pdf_fonts(pdfmetrics, UnicodeCIDFont, TTFont)
+    chinese_font, heading_font, latin_font = _register_academic_pdf_fonts(
+        pdfmetrics, UnicodeCIDFont, TTFont
+    )
     styles = getSampleStyleSheet()
     body = ParagraphStyle("CWAcademicBody", parent=styles["BodyText"], fontName=chinese_font, fontSize=10.5, leading=17, spaceAfter=6)
     source_style = ParagraphStyle("CWAcademicSource", parent=body, textColor=colors.HexColor("#555555"), fontSize=8.5, leading=13)
-    title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName=chinese_font, fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
+    title_style = ParagraphStyle("CWAcademicTitle", parent=styles["Title"], fontName=heading_font, fontSize=18, leading=26, alignment=TA_CENTER, spaceAfter=18)
     credit_style = ParagraphStyle(
         "CWAcademicCredit", parent=body, fontSize=9, leading=13, alignment=TA_CENTER, spaceAfter=12
     )
-    heading_style = ParagraphStyle("CWAcademicHeading", parent=styles["Heading2"], fontName=chinese_font, fontSize=13, leading=19, spaceBefore=12, spaceAfter=7)
+    heading_style = ParagraphStyle("CWAcademicHeading", parent=styles["Heading2"], fontName=heading_font, fontSize=13, leading=19, spaceBefore=12, spaceAfter=7)
     caption_style = ParagraphStyle("CWAcademicCaption", parent=body, fontSize=9, leading=14, leftIndent=8, textColor=colors.HexColor("#333333"))
     output = root / "output" / "pdf" / f"{content}.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -133,7 +135,7 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     section.bottom_margin = Cm(2.0)
     section.left_margin = section.right_margin = Cm(2.5)
     normal = document.styles["Normal"]
-    chinese_docx_font = _preferred_docx_chinese_font()
+    chinese_docx_font = "SimSun"
     normal.font.name = "Times New Roman"
     normal._element.rPr.rFonts.set(qn("w:eastAsia"), chinese_docx_font)
     normal.font.size = Pt(10.5 if profile == "zh-cn-academic" else 10)
@@ -141,8 +143,8 @@ def export_academic_docx(root: Path, content: str = "translated", profile: str =
     for style_name in ("Title", "Heading 1", "Heading 2", "Heading 3"):
         style = document.styles[style_name]
         style.font.name = "Times New Roman"
-        style._element.rPr.rFonts.set(qn("w:eastAsia"), chinese_docx_font)
-        style.font.bold = False
+        style._element.rPr.rFonts.set(qn("w:eastAsia"), "SimHei")
+        style.font.bold = True
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.style = document.styles["Title"]
@@ -324,9 +326,12 @@ def _translator_credit(active: dict[str, TranslationRecord]) -> str:
     return "ContextWeaver translation workflow"
 
 
-def _register_academic_pdf_fonts(pdfmetrics: object, cid_font: object, tt_font: object) -> tuple[str, str]:
-    """Embed Songti SC and Times New Roman when those local fonts are available."""
+def _register_academic_pdf_fonts(
+    pdfmetrics: object, cid_font: object, tt_font: object
+) -> tuple[str, str, str]:
+    """Embed regular Songti body, Heiti headings, and Times New Roman Latin."""
     songti = Path("/System/Library/Fonts/Supplemental/Songti.ttc")
+    heiti = Path("/System/Library/Fonts/STHeiti Medium.ttc")
     times = Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
     if songti.exists():
         # In Apple's Songti collection, index 6 is Songti SC Regular.  Earlier
@@ -337,18 +342,17 @@ def _register_academic_pdf_fonts(pdfmetrics: object, cid_font: object, tt_font: 
     else:
         pdfmetrics.registerFont(cid_font("STSong-Light"))
         chinese_font = "STSong-Light"
+    if heiti.exists():
+        pdfmetrics.registerFont(tt_font("CW-Heiti", str(heiti), subfontIndex=1))
+        heading_font = "CW-Heiti"
+    else:
+        heading_font = chinese_font
     if times.exists():
         pdfmetrics.registerFont(tt_font("CW-TimesNewRoman", str(times)))
         latin_font = "CW-TimesNewRoman"
     else:
         latin_font = "Times-Roman"
-    return chinese_font, latin_font
-
-
-def _preferred_docx_chinese_font() -> str:
-    """Prefer the installed, open-licensed Songti face without harming portability."""
-    source_han = Path.home() / "Library" / "Fonts" / "SourceHanSerifSC-Regular.otf"
-    return "Source Han Serif SC" if source_han.exists() else "宋体"
+    return chinese_font, heading_font, latin_font
 
 
 def _mixed_font_markup(value: str, latin_font: str | None) -> str:
