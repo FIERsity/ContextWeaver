@@ -4,7 +4,7 @@ ContextWeaver is an early-stage, file-first engineering framework for translatin
 
 Ordinary chunk-by-chunk machine translation treats each block as an isolated prompt. ContextWeaver instead gives every translation unit a compact context packet: neighboring text, section context, glossary entries, and cross-chapter entities. Stable segment identifiers preserve source-to-translation alignment, while a manifest and append-only translation records allow interrupted runs to resume without retranslating completed work.
 
-The current release imports Markdown, TXT, DOCX, and EPUB; preserves reviewable Markdown blocks; creates stable segments and units; automatically profiles a work before translation; proposes evidence-backed terminology and entities; runs an offline mock or optional OpenAI adapter; keeps immutable translation revisions; validates alignment, structure, terminology, and repeated-source consistency; and exports translated or bilingual Markdown and EPUB.
+The current release imports Markdown, TXT, DOCX, EPUB, and JATS XML; preserves reviewable Markdown blocks; creates stable segments and units; automatically profiles a work before translation; proposes evidence-backed terminology and entities; runs an offline mock or optional OpenAI adapter; keeps immutable translation revisions; validates alignment, structure, terminology, and repeated-source consistency; and exports translated or bilingual Markdown and EPUB.
 
 Version 0.3 adds import-loss reports and local human-translation references, including chapter alignment and review-draft adaptation from Taiwan Traditional Chinese to Mainland Simplified Chinese. See the structural, non-copyrighted [Power and Progress pilot report](docs/pilots/power-and-progress.md).
 
@@ -21,6 +21,8 @@ Version 0.8 adds a machine-readable v1 readiness audit and convergent autonomous
 Version 0.9 adds revision-tracked Section-title translation, localized Markdown/EPUB headings and navigation, source-title integrity checks, coherence invalidation after title edits, structural image passthrough, evidence auditing, and cost-bounded TranslationUnit batches.
 
 Version 0.10 adds bounded offline-Agent work packages and semantic numeric anchors for natural, source-backed Chinese renderings of dates, decades, centuries, historical ordinals, and scaled quantities.
+
+The first academic-document path imports JATS XML (the open interchange format used by many journals). It recognizes the work as a scholarly article before translation, retains article sections, captions, tables, displayed equations, footnotes, and references as inspectable Markdown, and emits a structured import report for figures, tables, citations, equations, and publishing-stage risks. PDF/DOCX publication rendering is the next phase, not yet a release capability. The structural [PLOS JATS pilot](docs/pilots/plos-jats-academic.md) records the first real-paper run.
 
 The current EPUB exporter also copies referenced image binaries from an EPUB source and rewrites resolvable intra-book chapter links to the generated EPUB sections. Export auditing verifies that image targets and local links resolve inside both EPUB artifacts.
 
@@ -268,7 +270,7 @@ src/contextweaver/
 ├── storage.py      # strict JSON/JSONL persistence
 ├── pipeline.py     # idempotent workflow operations
 ├── adapters.py     # provider-neutral interface and mock
-├── importers.py    # DOCX/EPUB/TXT normalization
+├── importers.py    # DOCX/EPUB/JATS/TXT normalization
 ├── markdown.py     # source-preserving block parser
 ├── knowledge.py    # evidence-backed review proposals
 ├── strategy.py     # automatic book profiling and concept strategy
@@ -291,6 +293,7 @@ See [docs/architecture.md](docs/architecture.md) for invariants and extension po
 
 ## Roadmap
 
+- Add academic PDF/DOCX publication rendering, with figure/table placement and Chinese typography profiles.
 - Preserve richer DOCX/EPUB images, footnotes, hyperlinks, and nested tables.
 - Complete a full real-book autonomous translation and acceptance audit.
 - Add autonomous ambiguity resolution and richer style-profile checks.

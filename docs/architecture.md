@@ -56,7 +56,7 @@ SQLite is intentionally absent: phase-one state is small enough for transparent 
 
 ## Import and structure preservation
 
-Markdown-it token ranges retain each top-level block's raw Markdown, plain text, type, source line locator, and format signature. TXT headings are normalized to Markdown. DOCX headings, emphasis, simple lists, and tables are converted with `python-docx`; EPUB spine documents are converted with EbookLib and Beautiful Soup. The original file remains available to audit lossy conversion.
+Markdown-it token ranges retain each top-level block's raw Markdown, plain text, type, source line locator, and format signature. TXT headings are normalized to Markdown. DOCX headings, emphasis, simple lists, and tables are converted with `python-docx`; EPUB spine documents are converted with EbookLib and Beautiful Soup. JATS XML articles retain section hierarchy, captions, tables, displayed equations, citations, footnotes, and references in normalized Markdown, while their import report explicitly records figures, tables, citation counts, equations, and asset-rendering limitations. The original file remains available to audit lossy conversion.
 
 ## Evidence-backed knowledge
 
@@ -102,6 +102,6 @@ Export selection is the Cartesian choice of format (`markdown`, `epub`, or both)
 
 ## Known phase-one limits
 
-Nested Markdown constructs remain one top-level Segment. DOCX/EPUB normalization still omits some footnote, hyperlink-anchor, nested-table, and style details; EPUB export restores referenced binary images and only rewrites links that can be matched safely to a generated Section. Knowledge extraction is conservative and oriented toward capitalized names. Deterministic rules cannot judge semantic fidelity or literary quality.
+Nested Markdown constructs remain one top-level Segment. DOCX/EPUB normalization still omits some footnote, hyperlink-anchor, nested-table, and style details. JATS figure binaries and full math layout are intentionally deferred to the future academic publishing layer. EPUB export restores referenced binary images and only rewrites links that can be matched safely to a generated Section. Knowledge extraction is conservative and oriented toward capitalized names. Deterministic rules cannot judge semantic fidelity or literary quality.
 
 The v1.0 completion gate is maintained in [v1-acceptance.md](v1-acceptance.md); new feature work should be judged against those exit criteria rather than expanding the framework indefinitely.

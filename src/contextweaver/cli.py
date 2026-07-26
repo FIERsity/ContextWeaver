@@ -63,7 +63,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--name")
     init.add_argument("--source-language", default="en")
     init.add_argument("--target-language", default="zh-CN")
-    imp = commands.add_parser("import", help="Import Markdown, TXT, DOCX, or EPUB")
+    imp = commands.add_parser("import", help="Import Markdown, TXT, DOCX, EPUB, or JATS XML")
     imp.add_argument("project", type=Path)
     imp.add_argument("source", type=Path)
     imp.add_argument(

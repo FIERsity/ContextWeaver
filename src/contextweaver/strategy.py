@@ -47,23 +47,40 @@ class HeuristicBookAnalysisAdapter(BookAnalysisAdapter):
         domains = [
             domain for domain, score in sorted(scores.items(), key=lambda item: -item[1]) if score
         ][:3]
+        academic = payload["source"].get("source_format") == "jats"
         genre = (
-            "long-form nonfiction" if payload["segment_count"] >= 20 else "short-form nonfiction"
+            "scholarly research article"
+            if academic
+            else "long-form nonfiction"
+            if payload["segment_count"] >= 20
+            else "short-form nonfiction"
         )
         rules = _concept_rules(payload["concept_evidence"])
+        principles = [
+            "Treat the source text as the sole semantic authority.",
+            "Preserve facts, qualifications, argument relations, tone, and important rhetoric.",
+            "Prefer native Chinese clause order and sentence rhythm over English-shaped syntax.",
+            "Keep domain concepts distinct even when everyday Chinese offers a looser synonym.",
+            "Record uncertainty instead of silently adding an explanation.",
+        ]
+        if academic:
+            principles.extend(
+                [
+                    "Preserve citation keys, figure/table labels, equations, units, and statistical symbols exactly unless an explicit academic rendering rule applies.",
+                    "Translate captions and prose, but never silently alter reported data, reference metadata, or cross-reference targets.",
+                ]
+            )
         return {
             "genre": genre,
-            "domains": domains or ["general nonfiction"],
-            "source_style": "argument-led expository prose with narrative evidence",
+            "domains": domains or (["academic research"] if academic else ["general nonfiction"]),
+            "source_style": (
+                "scholarly research prose with formal methods, results, and publication apparatus"
+                if academic
+                else "argument-led expository prose with narrative evidence"
+            ),
             "target_style": "idiomatic Mainland Simplified Chinese with semantic fidelity",
-            "audience": "educated general readers",
-            "principles": [
-                "Treat the source text as the sole semantic authority.",
-                "Preserve facts, qualifications, argument relations, tone, and important rhetoric.",
-                "Prefer native Chinese clause order and sentence rhythm over English-shaped syntax.",
-                "Keep domain concepts distinct even when everyday Chinese offers a looser synonym.",
-                "Record uncertainty instead of silently adding an explanation.",
-            ],
+            "audience": "research readers" if academic else "educated general readers",
+            "principles": principles,
             "concept_rules": rules,
             "confidence": 0.65 if rules else 0.5,
         }

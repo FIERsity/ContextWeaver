@@ -120,3 +120,14 @@ def test_release_audit_uses_strict_numeric_validation(tmp_path: Path) -> None:
     checks = {item["id"]: item for item in report["checks"]}
     assert checks["deterministic_validation"]["status"] == "fail"
     assert checks["deterministic_validation"]["evidence"]["blocking_errors"] == 1
+
+
+def test_audit_requires_import_report_for_jats_sources(tmp_path: Path) -> None:
+    root, _ = _complete_project(tmp_path)
+    source_path = root / "state" / "source_document.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source["source_format"] = "jats"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+    report = audit_project(root, allow_mock=True)
+    checks = {item["id"]: item for item in report["checks"]}
+    assert checks["import_loss_report"]["status"] == "fail"

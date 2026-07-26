@@ -23,7 +23,12 @@ class MarkdownBlock:
 def parse_markdown(source: str) -> list[MarkdownBlock]:
     """Parse top-level source ranges while retaining their exact Markdown."""
     lines = source.splitlines()
-    tokens = MarkdownIt("commonmark", {"html": True}).use(footnote_plugin).parse(source)
+    tokens = (
+        MarkdownIt("commonmark", {"html": True})
+        .enable("table")
+        .use(footnote_plugin)
+        .parse(source)
+    )
     ranges: list[tuple[int, int, str, object]] = []
     consumed_until = -1
     for token in tokens:

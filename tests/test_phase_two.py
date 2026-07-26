@@ -30,6 +30,7 @@ from contextweaver.pipeline import (
 )
 from contextweaver.reference import import_reference, simplify_reference, simplify_reference_outputs
 from contextweaver.storage import read_jsonl, write_jsonl
+from contextweaver.strategy import HeuristicBookAnalysisAdapter, analyze_project
 
 
 def _project(tmp_path: Path, source: Path) -> Path:
@@ -109,6 +110,53 @@ def test_epub_import(tmp_path: Path) -> None:
     assert segments[0].text == "Hello EPUB."
     report = json.loads((root / "state" / "import_report.json").read_text())
     assert report["spine_documents"] == 1
+
+
+def test_jats_import_preserves_academic_structure_and_reports_publishing_risks(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "article.xml"
+    source.write_text(
+        """<?xml version=\"1.0\"?>
+<article xmlns:xlink=\"http://www.w3.org/1999/xlink\">
+  <front><article-meta><title-group><article-title>Trial Article</article-title></title-group>
+    <abstract><p>Abstract with <xref ref-type=\"bibr\">[1]</xref>.</p></abstract></article-meta></front>
+  <body><sec><title>Methods</title><p>Body text with <xref ref-type=\"bibr\">[2]</xref>.</p>
+    <fig id=\"f1\"><label>Fig 1</label><caption><p>Study flow.</p></caption>
+      <graphic xlink:href=\"figure-1\"/></fig>
+    <table-wrap id=\"t1\"><label>Table 1</label><caption><p>Results.</p></caption>
+      <table><tr><th>Group</th><th>n</th></tr><tr><td>A</td><td>12</td></tr></table></table-wrap>
+    <disp-formula><mml:math xmlns:mml=\"http://www.w3.org/1998/Math/MathML\"><mml:mi>x</mml:mi></mml:math></disp-formula>
+  </sec></body>
+  <back><fn-group><fn id=\"fn1\"><p>Funding note.</p></fn></fn-group>
+    <ref-list><ref id=\"r1\"><mixed-citation>Doe J. 2020. Example.</mixed-citation></ref></ref-list></back>
+</article>""",
+        encoding="utf-8",
+    )
+    root = _project(tmp_path, source)
+    normalized = (root / "source" / "document.md").read_text(encoding="utf-8")
+    assert "# Trial Article" in normalized
+    assert "## Abstract" in normalized
+    assert "## Methods" in normalized
+    assert "> **Fig 1.** Study flow." in normalized
+    assert "| Group | n |" in normalized
+    assert "```math\nx\n```" in normalized
+    assert "## Footnotes" in normalized
+    assert "## References" in normalized
+    report = json.loads((root / "state" / "import_report.json").read_text())
+    assert report["source_format"] == "jats"
+    assert report["figures"] == 1
+    assert report["tables"] == 1
+    assert report["equations"] == 1
+    assert report["citations"] == 2
+    assert report["footnotes"] == 1
+    assert report["references"] == 1
+    _, segments, _ = segment_document(root)
+    assert any(item.kind == "table" for item in segments)
+    brief = analyze_project(root, HeuristicBookAnalysisAdapter())
+    assert brief["genre"] == "scholarly research article"
+    assert "academic research" in brief["domains"]
+    assert any("citation keys" in item for item in brief["principles"])
 
 
 def test_knowledge_proposals_have_evidence_and_preserve_edits(tmp_path: Path) -> None:

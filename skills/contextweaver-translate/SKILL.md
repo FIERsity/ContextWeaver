@@ -25,7 +25,7 @@ Set a shell variable such as `CW=contextweaver` or `CW="uv run contextweaver"`. 
 
    If the path is not a project, initialize it with explicit source and target languages.
 
-2. Import one source. Never pass `--replace` unless the user explicitly intends to discard generated translation state. EPUB, DOCX, Markdown, and TXT are supported.
+2. Import one source. Never pass `--replace` unless the user explicitly intends to discard generated translation state. EPUB, DOCX, Markdown, TXT, and JATS XML are supported. For an academic JATS source, inspect `state/import_report.json` before segmenting: figures, tables, citations, equations, footnotes, and references are preserved as reviewable structure, but figure-asset fetching and final PDF/DOCX layout remain a publishing-stage task.
 
 3. Run `segment`, then inspect `state/segments.jsonl` before translating. Report section, segment, and unit counts. Do not alter stable Segment IDs manually.
 

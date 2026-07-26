@@ -62,7 +62,7 @@ def audit_project(root: Path, *, allow_mock: bool = False) -> dict[str, Any]:
             "format": source.source_format,
         },
     )
-    report_required = source.source_format in {"epub", "docx"}
+    report_required = source.source_format in {"epub", "docx", "jats"}
     import_report = root / STATE / "import_report.json"
     _check(
         checks,
